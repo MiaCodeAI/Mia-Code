@@ -1,0 +1,54 @@
+{
+  "name": "mia-code",
+  "version": "0.1.0",
+  "description": "Open-source, cross-platform, bring-your-own-key AI coding assistant for the terminal (early development).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "mia": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MiaCodeAI/Mia-Code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MiaCodeAI/Mia-Code/issues"
+  },
+  "homepage": "https://github.com/MiaCodeAI/Mia-Code#readme",
+  "keywords": [
+    "ai",
+    "coding-assistant",
+    "cli",
+    "agent",
+    "byok"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.4"
+  }
+}
