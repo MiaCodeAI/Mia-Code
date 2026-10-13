@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# Never commit secrets or local Mia Code state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.mia/
