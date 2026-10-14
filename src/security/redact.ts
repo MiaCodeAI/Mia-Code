@@ -28,6 +28,35 @@ export function clearRegisteredSecrets(): void {
   registered.clear();
 }
 
+export interface SecretMatch {
+  /** Zero-based character offset in the text. */
+  index: number;
+  /** Prefix and length only; the secret itself is never returned. */
+  preview: string;
+  kind: 'token' | 'private-key';
+}
+
+/** Finds token-shaped secrets. Matches are returned masked so reports never repeat the secret. */
+export function findSecretTokens(text: string): SecretMatch[] {
+  const found: SecretMatch[] = [];
+  for (const pattern of TOKEN_PATTERNS) {
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+    const scan = new RegExp(pattern.source, flags);
+    for (const match of text.matchAll(scan)) {
+      const value = match[0];
+      const isKey = value.startsWith('-----BEGIN');
+      found.push({
+        index: match.index ?? 0,
+        preview: isKey
+          ? '-----BEGIN … PRIVATE KEY-----'
+          : `${value.slice(0, 4)}… (${value.length} chars)`,
+        kind: isKey ? 'private-key' : 'token',
+      });
+    }
+  }
+  return found.sort((a, b) => a.index - b.index);
+}
+
 /** True when the text contains a token-shaped secret (used to keep secrets out of config files). */
 export function containsSecretToken(text: string): boolean {
   return TOKEN_PATTERNS.some((pattern) => {

@@ -3,6 +3,9 @@ const MAIN = `Mia Code - open-source, bring-your-own-key AI coding assistant for
 Usage:
   mia                          Start an interactive session in the current folder
   mia ask <question>           Ask one question and print the answer
+  mia scan [--json|--full]     Show a map of this project (local only)
+  mia search <text>            Search project files (local only)
+  mia audit [--mode <mode>]    Read-only static audit with a findings report
   mia init                     Guided setup: provider, API key, model, connectivity test
   mia doctor [--online]        Check this machine and your setup
   mia auth <login|list|remove> Manage API keys (stored in your OS credential store)
@@ -12,8 +15,9 @@ Usage:
   mia help [command]           Show help
   mia --version                Print the version
 
-Current status: this release is read-only chat. It can see a file-name overview of your
-project (and the start of your README) but cannot yet read files, edit code or run commands.
+Current status: read-only. Mia Code maps your project, searches it, audits it, and answers
+questions using excerpts of the files most relevant to each question (shown before sending,
+secrets excluded). It cannot yet edit code or run commands.
 Run "mia help <command>" for details, and see docs/ for guides.`;
 
 const TOPICS: Record<string, string> = {
@@ -32,8 +36,36 @@ The answer goes to stdout; notices and token usage go to stderr, so it is safe t
 Options:
   --provider <name>   Use this provider instead of the default
   --model <id>        Use this model instead of the provider's selected model
-  --no-context        Send only the question, no project overview
-  --show-context      Print the project overview that would be sent, then exit (sends nothing)`,
+  --no-context        Send only the question, no project overview or file excerpts
+  --no-evidence       Send the overview but no file excerpts
+  --show-context      Print the overview and the file excerpts that would be sent, then exit (sends nothing)
+
+Excerpts are chosen locally (names in your question, symbols, text matches), never include
+secret files, and are listed on stderr before sending. After the answer, any file:line citations
+are checked against what was sent.`,
+
+  scan: `mia scan [--json] [--full]
+
+Maps the current project: languages, frameworks, detected commands, directories, key modules,
+routes, environment variable names, tests and secret files present (names only). Heuristic,
+local only, sends nothing. --full also lists every readable file path.`,
+
+  search: `mia search [--regex] [--ignore-case] [--symbol] [--max <n>] <text>
+
+Searches project files the exclusion policy allows (never secrets, dependencies or build output).
+Uses ripgrep when installed, otherwise a built-in search. --symbol looks up definitions by name.
+Exit code 1 when nothing matches.`,
+
+  audit: `mia audit [--mode <mode>] [--categories <list>] [--format text|json|markdown]
+          [--output <file>] [--fail-on <severity>]
+
+Read-only static audit. Never changes project files, runs project code or uses the network.
+Modes: quick, standard (default), deep, security, deployment, custom (needs --categories).
+Categories: security, dependencies, deployment, testing, errors, maintainability, documentation,
+crossplatform. Every finding states its confidence and how it was checked, and the report lists
+what a static audit cannot assess. Add "mia-audit-ignore" to a line to suppress a finding there.
+--output must be outside the project. --fail-on exits 1 when a finding of that severity or
+worse exists (useful in CI). Performance audits are not supported.`,
 
   doctor: `mia doctor [--online] [--json]
 

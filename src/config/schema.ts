@@ -42,6 +42,8 @@ export interface Limits {
   requestTimeoutMs: number;
   maxOutputTokens: number;
   maxRetries: number;
+  /** Characters of file excerpts sent with a question (about 4 characters per token). */
+  evidenceChars: number;
 }
 
 export interface MiaConfig {
@@ -71,7 +73,12 @@ export function defaultConfig(): MiaConfig {
     providers: {},
     capabilities: {},
     pricing: {},
-    limits: { requestTimeoutMs: 120_000, maxOutputTokens: 4096, maxRetries: 2 },
+    limits: {
+      requestTimeoutMs: 120_000,
+      maxOutputTokens: 4096,
+      maxRetries: 2,
+      evidenceChars: 20_000,
+    },
   };
 }
 
@@ -361,7 +368,12 @@ export function validateConfig(input: unknown): { config: MiaConfig; errors: str
   if (limits !== undefined) {
     if (!isRecord(limits)) errors.push('limits must be an object');
     else {
-      unknownKeys(limits, ['requestTimeoutMs', 'maxOutputTokens', 'maxRetries'], 'limits', errors);
+      unknownKeys(
+        limits,
+        ['requestTimeoutMs', 'maxOutputTokens', 'maxRetries', 'evidenceChars'],
+        'limits',
+        errors,
+      );
       const t = intInRange(
         limits['requestTimeoutMs'],
         1000,
@@ -380,6 +392,8 @@ export function validateConfig(input: unknown): { config: MiaConfig; errors: str
       if (m !== undefined) config.limits.maxOutputTokens = m;
       const r = intInRange(limits['maxRetries'], 0, 5, 'limits.maxRetries', errors);
       if (r !== undefined) config.limits.maxRetries = r;
+      const e = intInRange(limits['evidenceChars'], 2000, 200_000, 'limits.evidenceChars', errors);
+      if (e !== undefined) config.limits.evidenceChars = e;
     }
   }
 

@@ -8,7 +8,9 @@ src/
   config/                schema.ts (strict validation, all errors at once) and store.ts (atomic 0600 writes, secret guard)
   credentials/           CredentialStore interface + Linux / macOS / Windows backends and key resolution
   providers/             Provider interface, adapters (openai.ts, anthropic.ts), http/sse/retry helpers, error normalisation, presets, capabilities
-  project/               exclusion policy, safe git access, project snapshot
+  project/               exclusion policy, safe git access
+  repo/                  inventory, safe reader, analysis, detection, index, import graph, map, search, evidence, citations
+  audit/                 read-only audit rules, engine and reports
   security/              redaction, endpoint validation
   session/               ChatSession (history window, usage totals, cost) and the system prompt
   platform/              config paths, subprocess runner (no shell), editor launcher
