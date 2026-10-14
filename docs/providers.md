@@ -74,3 +74,24 @@ list reports it (currently only context window, where offered) or you declare it
 | Model not found (404)       | `mia model list`, then `mia model use <id>`                            |
 | Request too large           | `/clear`, or choose a model with a larger context window               |
 | TLS certificate failed      | Corporate proxy? Set `NODE_EXTRA_CA_CERTS`. Never disable verification |
+
+## Multiple API keys and rotation
+
+Add as many keys as you like per provider:
+
+```
+mia auth login openai                    # default key
+mia auth login openai --label backup     # extra key
+export OPENAI_API_KEY="sk-aaa,sk-bbb"    # an environment variable may also hold several keys
+```
+
+Mia Code stays on one key. When a request fails in a way another key could fix, it switches to the next usable key before any output is streamed and prints a notice:
+
+| Error                           | Key is parked for                     |
+| ------------------------------- | ------------------------------------- |
+| Quota exhausted / out of credit | 6 hours                               |
+| Rate limited                    | the `Retry-After` time (default 60 s) |
+| Rejected (401/403)              | the rest of the session               |
+| Provider outage / timeout       | 30 seconds                            |
+
+Errors a different key cannot fix (bad request, context too long, unknown model) are reported as they are. If every key is parked, you get a summary of each key's state. `/keys` shows the pool and `/keys reset` retries parked keys. With several keys, per-key retries are reduced so failover is quick. State is kept in memory for the session only.

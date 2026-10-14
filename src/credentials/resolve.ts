@@ -63,3 +63,64 @@ export async function resolveApiKey(
   }
   return null;
 }
+
+export interface PooledKey extends ResolvedKey {
+  /** Short, non-secret name shown in messages: `env:NAME#2`, `default` or the label. */
+  label: string;
+}
+
+/** Credential-store account for a provider's additional, labelled key. */
+export function keyAccount(providerName: string, label?: string): string {
+  return label ? `${providerName}--${label}` : providerName;
+}
+
+/** Splits an environment variable holding one or several keys (separated by commas, spaces or newlines). */
+export function splitKeys(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((k) => k.trim())
+        .filter((k) => k !== ''),
+    ),
+  ];
+}
+
+/**
+ * Every key available for a provider, in rotation order: environment variables (each may hold
+ * several keys), then the default stored key, then labelled stored keys. Duplicates are removed.
+ */
+export async function resolveApiKeys(
+  providerName: string,
+  config: ProviderConfig,
+  env: NodeJS.ProcessEnv,
+  store: CredentialStore,
+): Promise<PooledKey[]> {
+  const out: PooledKey[] = [];
+  const seen = new Set<string>();
+  const add = (key: string, source: string, label: string): void => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key, source, label });
+  };
+  for (const name of envVarCandidates(config)) {
+    const keys = splitKeys(env[name] ?? '');
+    keys.forEach((k, i) => add(k, `env:${name}`, keys.length > 1 ? `${name}#${i + 1}` : name));
+  }
+  const accounts: { account: string; label: string }[] = [
+    { account: providerName, label: 'default' },
+    ...(config.keyLabels ?? []).map((label) => ({
+      account: keyAccount(providerName, label),
+      label,
+    })),
+  ];
+  for (const { account, label } of accounts) {
+    try {
+      const stored = await store.get(account);
+      if (stored) add(stored.trim(), `store:${store.name}`, label);
+    } catch {
+      // unreadable store: treated as no key; `mia doctor` explains why
+    }
+  }
+  return out;
+}

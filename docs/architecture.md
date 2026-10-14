@@ -11,6 +11,7 @@ src/
   project/               exclusion policy, safe git access
   repo/                  inventory, safe reader, analysis, detection, index, import graph, map, search, evidence, citations
   audit/                 read-only audit rules, engine and reports
+  agent/                 tools, permission policy, edit checkpoints, agent loop, prompt, terminal rendering
   security/              redaction, endpoint validation
   session/               ChatSession (history window, usage totals, cost) and the system prompt
   platform/              config paths, subprocess runner (no shell), editor launcher

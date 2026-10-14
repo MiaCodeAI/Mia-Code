@@ -13,6 +13,15 @@
 | Malicious or buggy model output                  | Output is only printed. Nothing is executed or written                                                                                                                                                    |
 | Compromised custom endpoint                      | You must confirm trust in the host before a key is requested; the key goes only to that host                                                                                                              |
 
+## Coding agent controls
+
+- Modes: `readonly`, `ask` (default), `auto-edit`, `auto`. Reading is always allowed; edits and commands follow the mode. Without a terminal, anything needing approval is declined.
+- Blocked in every mode, including `auto`: git push/reset --hard/clean, publishing, deployment tooling, sudo, broad `rm`, piping downloads into a shell, disk tools, dumping environment variables, and reading or copying secret files.
+- Edits are confined to the project and refuse secret files, dependency/build/VCS directories and symlinks. Child processes run without environment variables that look like credentials.
+- Tool output and repository text are treated as untrusted data in the prompt, but a model can still be misled by hostile content in a repository. Review approvals, and use `ask` for code you do not trust.
+- **The command block list is pattern matching, not a sandbox.** A model can phrase harmful commands in ways it will not match. Run untrusted work in a container or VM.
+- Multiple API keys: keys are stored individually in the OS credential store (labels, not keys, are in the config file), only sent to the configured host, masked in output, and never passed to child commands.
+
 ## Honest limits
 
 - **Redaction is best-effort pattern matching.** It masks known key shapes and every key Mia Code itself loaded, but cannot recognise every possible secret format.

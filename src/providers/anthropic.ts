@@ -3,7 +3,8 @@ import { ProviderError, errorFromException, errorFromStreamError } from './error
 import { RequestScope, readJson, sendRequest } from './http.js';
 import { streamWithRetry, withRetry, type RetryPolicy } from './retry.js';
 import { parseSse } from './sse.js';
-import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types.js';
+import { buildToolCall } from './tools.js';
+import type { ChatMessage, ChatRequest, ModelInfo, Provider, StreamEvent } from './types.js';
 
 export const ANTHROPIC_API_VERSION = '2023-06-01';
 const DEFAULT_MAX_TOKENS = 4096;
@@ -99,11 +100,16 @@ export class AnthropicProvider implements Provider {
       const body: Record<string, unknown> = {
         model: request.model,
         max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
-        messages: request.messages
-          .filter((m) => m.role !== 'system')
-          .map((m) => ({ role: m.role, content: m.content })),
+        messages: toWireMessages(request.messages),
         stream: true,
       };
+      if (request.tools && request.tools.length > 0) {
+        body['tools'] = request.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters,
+        }));
+      }
       if (system !== '') body['system'] = system;
       if (request.temperature !== undefined) body['temperature'] = request.temperature;
 
@@ -128,6 +134,7 @@ export class AnthropicProvider implements Provider {
 
       let stopReason: string | undefined;
       let finished = false;
+      const blocks = new Map<number, { id: string; name: string; args: string }>();
       try {
         for await (const sse of parseSse(response.body, () => scope.touch())) {
           let data: unknown;
@@ -150,11 +157,32 @@ export class AnthropicProvider implements Provider {
             const usage = isRecord(message) ? message['usage'] : undefined;
             const input = isRecord(usage) ? asNumber(usage['input_tokens']) : undefined;
             if (input !== undefined) yield { type: 'usage', usage: { inputTokens: input } };
+          } else if (type === 'content_block_start') {
+            const block = data['content_block'];
+            const index = asNumber(data['index']) ?? 0;
+            if (isRecord(block) && block['type'] === 'tool_use') {
+              blocks.set(index, {
+                id: asString(block['id']) ?? `toolu_${index}`,
+                name: asString(block['name']) ?? '',
+                args: '',
+              });
+            }
+          } else if (type === 'content_block_stop') {
+            const index = asNumber(data['index']) ?? 0;
+            const block = blocks.get(index);
+            if (block) {
+              blocks.delete(index);
+              yield { type: 'tool_call', call: buildToolCall(block.id, block.name, block.args) };
+            }
           } else if (type === 'content_block_delta') {
             const delta = data['delta'];
             if (isRecord(delta) && delta['type'] === 'text_delta') {
               const text = asString(delta['text']);
               if (text) yield { type: 'text', text };
+            } else if (isRecord(delta) && delta['type'] === 'input_json_delta') {
+              const block = blocks.get(asNumber(data['index']) ?? 0);
+              const part = asString(delta['partial_json']);
+              if (block && part) block.args += part;
             }
           } else if (type === 'message_delta') {
             const delta = data['delta'];
@@ -184,4 +212,40 @@ export class AnthropicProvider implements Provider {
       scope.close();
     }
   }
+}
+
+/** Maps neutral messages to Anthropic's format; consecutive tool results become one user message. */
+function toWireMessages(messages: readonly ChatMessage[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    if (m.role === 'tool') {
+      const block = {
+        type: 'tool_result',
+        tool_use_id: m.toolCallId ?? '',
+        content: m.content,
+        ...(m.isError ? { is_error: true } : {}),
+      };
+      const last = out.at(-1);
+      if (
+        last &&
+        last['role'] === 'user' &&
+        Array.isArray(last['content']) &&
+        last['__tool'] === true
+      ) {
+        (last['content'] as unknown[]).push(block);
+      } else out.push({ role: 'user', content: [block], __tool: true });
+      continue;
+    }
+    if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+      const content: Record<string, unknown>[] = [];
+      if (m.content !== '') content.push({ type: 'text', text: m.content });
+      for (const c of m.toolCalls)
+        content.push({ type: 'tool_use', id: c.id, name: c.name, input: c.arguments });
+      out.push({ role: 'assistant', content });
+      continue;
+    }
+    out.push({ role: m.role, content: m.content });
+  }
+  return out.map(({ __tool: _unused, ...rest }) => rest);
 }

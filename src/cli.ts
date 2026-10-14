@@ -7,6 +7,7 @@ import { initCommand } from './commands/init.js';
 import { modelCommand } from './commands/model.js';
 import { providerCommand } from './commands/provider.js';
 import { replCommand } from './commands/repl.js';
+import { runCommand } from './commands/run.js';
 import { auditCommand, scanCommand, searchCommand } from './commands/repo.js';
 import { ConfigError } from './config/schema.js';
 import { createDefaultContext, type Context } from './context.js';
@@ -19,6 +20,7 @@ type Handler = (args: string[], ctx: Context) => Promise<number>;
 const COMMANDS: Record<string, Handler> = {
   init: initCommand,
   ask: askCommand,
+  run: runCommand,
   scan: scanCommand,
   search: searchCommand,
   audit: auditCommand,

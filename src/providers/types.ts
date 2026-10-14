@@ -1,10 +1,32 @@
 import type { ProviderKind } from '../config/schema.js';
 
-export type Role = 'system' | 'user' | 'assistant';
+export type Role = 'system' | 'user' | 'assistant' | 'tool';
+
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema (object) describing the arguments. */
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** Parsed arguments; empty object when the model sent none or invalid JSON (see `invalidArguments`). */
+  arguments: Record<string, unknown>;
+  /** Set when the model's arguments could not be parsed as a JSON object. */
+  invalidArguments?: string;
+}
 
 export interface ChatMessage {
   role: Role;
   content: string;
+  /** On assistant messages: tool calls the model made. */
+  toolCalls?: ToolCall[];
+  /** On tool messages: which call this answers. */
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
 }
 
 export interface Usage {
@@ -18,11 +40,14 @@ export interface ChatRequest {
   messages: ChatMessage[];
   maxOutputTokens?: number;
   temperature?: number;
+  /** Tools the model may call. Providers/endpoints that do not support tools reject the request. */
+  tools?: ToolSpec[];
   signal?: AbortSignal;
 }
 
 export type StreamEvent =
   | { type: 'text'; text: string }
+  | { type: 'tool_call'; call: ToolCall }
   | { type: 'usage'; usage: Usage }
   | { type: 'done'; stopReason?: string };
 
@@ -35,8 +60,7 @@ export interface ModelInfo {
 
 /**
  * The common surface every provider adapter implements.
- * Tool calling and structured output are intentionally not part of this interface yet
- * (they arrive with the agent engine in Phase 3).
+ * Tool calls are streamed as complete `tool_call` events (arguments fully assembled).
  */
 export interface Provider {
   readonly name: string;

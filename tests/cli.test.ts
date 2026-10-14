@@ -150,7 +150,7 @@ describe('auth login', () => {
 
     h.out.length = 0;
     expect(await run(['auth', 'list'], h.ctx)).toBe(0);
-    expect(h.out.join('\n')).toContain('found (store:memory)');
+    expect(h.out.join('\n')).toContain('1 found: default (store:memory)');
     expect(everything(h)).not.toContain(KEY);
   });
 
@@ -340,7 +340,9 @@ describe('interactive session', () => {
     await addOpenAI(h, 'm1');
     expect(await run([], h.ctx)).toBe(0);
     const text = everything(h);
-    expect(text).toContain('read-only chat');
+    expect(text).toContain('Mia Code v0.0.0-test');
+    expect(text).toContain('█');
+    expect(text).toMatch(/mode\s+ask:/);
     expect(text).toContain('This is a demo');
     expect(text).toContain('requests 1');
     expect(text).toMatch(/Unknown command \/bogus/);

@@ -85,7 +85,7 @@ export class ChatSession {
         } else if (event.type === 'usage') {
           if (event.usage.inputTokens !== undefined) usage.inputTokens = event.usage.inputTokens;
           if (event.usage.outputTokens !== undefined) usage.outputTokens = event.usage.outputTokens;
-        } else if (event.stopReason !== undefined) {
+        } else if (event.type === 'done' && event.stopReason !== undefined) {
           stopReason = event.stopReason;
         }
       }
