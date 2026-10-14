@@ -92,6 +92,10 @@ describe('inventory and safe reading', () => {
       'b.ts': 'export function two() {}',
     });
     expect(index.lastRefreshReads).toBe(2);
+    // Files written moments ago are re-read once (racy timestamps); age them, then they are trusted.
+    const old = new Date(Date.now() - 60_000);
+    for (const f of ['a.ts', 'b.ts']) await fs.utimes(path.join(index.directory, f), old, old);
+    await index.refresh();
     await index.refresh();
     expect(index.lastRefreshReads).toBe(0);
     await fs.writeFile(

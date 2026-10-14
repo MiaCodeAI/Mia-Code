@@ -1,5 +1,4 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { removeFileSafe, readFileSafe, writeFileSafe } from '../platform/safefs.js';
 import { unifiedDiff } from './diff.js';
 
 interface Change {
@@ -43,11 +42,12 @@ export class Checkpoints {
     return this.turns.filter((t) => t.changes.size > 0).length;
   }
 
-  private async current(rel: string): Promise<string | null> {
+  /** Current content, null if the file is gone, or undefined if it cannot be read safely (symlink, etc.). */
+  private async current(rel: string): Promise<string | null | undefined> {
     try {
-      return await fs.readFile(path.join(this.root, ...rel.split('/')), 'utf8');
+      return await readFileSafe(this.root, rel);
     } catch {
-      return null;
+      return undefined;
     }
   }
 
@@ -55,7 +55,11 @@ export class Checkpoints {
   async diffAll(): Promise<string> {
     const parts: string[] = [];
     for (const rel of this.changedFiles) {
-      const diff = unifiedDiff(rel, this.originals.get(rel) ?? null, await this.current(rel));
+      const diff = unifiedDiff(
+        rel,
+        this.originals.get(rel) ?? null,
+        (await this.current(rel)) ?? null,
+      );
       if (diff) parts.push(diff);
     }
     return parts.join('\n');
@@ -77,10 +81,14 @@ export class Checkpoints {
         result.conflicts.push(rel);
         continue;
       }
-      const abs = path.join(this.root, ...rel.split('/'));
-      if (change.before === null) await fs.rm(abs, { force: true });
-      else await fs.writeFile(abs, change.before, 'utf8');
-      result.restored.push(rel);
+      try {
+        // Re-validated at the moment of the write; symlinks are never followed.
+        if (change.before === null) await removeFileSafe(this.root, rel);
+        else await writeFileSafe(this.root, rel, change.before, { mustExist: now !== null });
+        result.restored.push(rel);
+      } catch {
+        result.conflicts.push(rel);
+      }
     }
     // Conflicting files stay in the turn so they are not silently forgotten.
     for (const rel of result.restored) {

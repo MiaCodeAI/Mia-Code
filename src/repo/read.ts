@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { excludedPathReason } from '../project/exclusions.js';
+import { UnsafePathError, readFileSafe } from '../platform/safefs.js';
 
 export type AccessErrorCode =
   'invalid' | 'outside' | 'excluded' | 'missing' | 'not-file' | 'binary' | 'too-large';
@@ -78,14 +79,22 @@ export async function readTextFile(
   requested: string,
   options: { maxBytes?: number } = {},
 ): Promise<TextFile> {
-  const { rel, abs } = await resolveInside(root, requested);
+  const { rel } = await resolveInside(root, requested);
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-  const stat = await fs.stat(abs);
-  if (stat.size > maxBytes)
-    throw new AccessError('too-large', `The file is larger than ${maxBytes} bytes.`);
-  const buffer = await fs.readFile(abs);
-  if (buffer.subarray(0, 8000).includes(0))
+  let content: string | null;
+  try {
+    content = await readFileSafe(root, rel, maxBytes);
+  } catch (error) {
+    if (error instanceof UnsafePathError) {
+      if (error.code === 'too-large')
+        throw new AccessError('too-large', `The file is larger than ${maxBytes} bytes.`);
+      throw new AccessError('outside', error.message);
+    }
+    throw error;
+  }
+  if (content === null) throw new AccessError('missing', 'The file does not exist.');
+  if (content.slice(0, 8000).includes('\0'))
     throw new AccessError('binary', 'The file looks binary.');
-  const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
+  const text = content.replace(/^\uFEFF/, '');
   return { path: rel, text, lines: text.split(/\r?\n/) };
 }

@@ -11,6 +11,18 @@ import {
 import { mapLimit } from '../util/concurrency.js';
 import type { FileEntry, Inventory } from './types.js';
 
+/** Identity of a file's current state. Any write changes the modification or change time. */
+export function fileSignature(f: FileEntry): string {
+  return `${f.size}:${f.mtimeNs}:${f.ctimeNs}:${f.ino}`;
+}
+
+/**
+ * File systems stamp times with a coarse clock (often 1-10 ms, sometimes 1-2 s), so two writes of
+ * the same size can share a timestamp. A file modified within this window of when it was read is
+ * "racy" (the same idea git uses) and is re-read on the next refresh instead of being trusted.
+ */
+export const RACY_WINDOW_MS = 2500;
+
 export interface InventoryOptions {
   /** Upper bound on listed files (default 20,000). */
   maxFiles?: number;
@@ -114,9 +126,16 @@ export async function buildInventory(
 
   const stats = await mapLimit(candidates, 64, async (rel) => {
     try {
-      const stat = await fs.lstat(path.join(root, rel));
+      const stat = await fs.lstat(path.join(root, rel), { bigint: true });
       if (!stat.isFile()) return null; // skips symlinks, directories, files deleted since the listing
-      const entry: FileEntry = { path: rel, size: stat.size, mtimeMs: Math.round(stat.mtimeMs) };
+      const entry: FileEntry = {
+        path: rel,
+        size: Number(stat.size),
+        mtimeMs: Number(stat.mtimeNs) / 1e6,
+        mtimeNs: stat.mtimeNs.toString(),
+        ctimeNs: stat.ctimeNs.toString(),
+        ino: stat.ino.toString(),
+      };
       return entry;
     } catch {
       return null;
@@ -125,7 +144,7 @@ export async function buildInventory(
   const files = stats.filter((e): e is FileEntry => e !== null);
 
   const hash = createHash('sha1');
-  for (const file of files) hash.update(`${file.path}\0${file.size}\0${file.mtimeMs}\n`);
+  for (const file of files) hash.update(`${file.path}\0${fileSignature(file)}\n`);
 
   return {
     root,

@@ -1,5 +1,5 @@
-import { promises as fs } from 'node:fs';
 import type { Runner } from '../platform/exec.js';
+import { UnsafePathError, readFileSafe, writeFileSafe } from '../platform/safefs.js';
 import { safeGitArgs, safeGitEnv } from '../project/git.js';
 import type { RepoIndex } from '../repo/index.js';
 import { AccessError, readTextFile } from '../repo/read.js';
@@ -19,6 +19,8 @@ export interface ToolEnv {
   platform: NodeJS.Platform;
   checkpoints: Checkpoints;
   signal?: AbortSignal;
+  /** Test seam: runs between planning an edit and writing it. */
+  beforeCommit?: () => Promise<void>;
 }
 
 export interface ToolResult {
@@ -374,11 +376,20 @@ async function planEdit(
 }
 
 async function commit(plan: Plan, env: ToolEnv): Promise<void> {
-  await fs.mkdir(
-    plan.abs.slice(0, Math.max(plan.abs.lastIndexOf('/'), plan.abs.lastIndexOf('\\'))),
-    { recursive: true },
-  );
-  await fs.writeFile(plan.abs, plan.after, 'utf8');
+  // Revalidate at the moment of writing: the file must still hold what the edit was planned against,
+  // and the write itself never follows symbolic links (see platform/safefs.ts).
+  try {
+    await env.beforeCommit?.();
+    const now = await readFileSafe(env.root, plan.rel);
+    if (now !== plan.before)
+      throw new PathPolicyError(
+        'The file changed since it was read. Read it again and redo the edit.',
+      );
+    await writeFileSafe(env.root, plan.rel, plan.after, { mustExist: plan.before !== null });
+  } catch (error) {
+    if (error instanceof UnsafePathError) throw new PathPolicyError(error.message);
+    throw error;
+  }
   env.checkpoints.record(plan.rel, plan.before, plan.after);
 }
 
@@ -403,7 +414,11 @@ const editFile: Tool = {
   async execute(args, env) {
     const plan = await planEdit(args, env);
     if ('error' in plan) return fail(plan.error);
-    await commit(plan, env);
+    try {
+      await commit(plan, env);
+    } catch (error) {
+      return fail(accessMessage(error));
+    }
     const s = diffStats(plan.before ?? '', plan.after);
     return ok(`Edited ${plan.rel} (+${s.added} -${s.removed}).`);
   },
@@ -456,7 +471,11 @@ const writeFile: Tool = {
     const plan = await planWrite(args, env);
     if ('error' in plan) return fail(plan.error);
     if (plan.before === plan.after) return ok(`${plan.rel} already has this content.`);
-    await commit(plan, env);
+    try {
+      await commit(plan, env);
+    } catch (error) {
+      return fail(accessMessage(error));
+    }
     return ok(
       `${plan.before === null ? 'Created' : 'Overwrote'} ${plan.rel} (${plan.after.replace(/\n$/, '').split('\n').length} lines).`,
     );

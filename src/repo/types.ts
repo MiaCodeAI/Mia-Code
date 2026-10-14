@@ -2,7 +2,12 @@ export interface FileEntry {
   /** Path relative to the project root, always `/`-separated. */
   path: string;
   size: number;
+  /** Modification time with sub-millisecond precision (may still be coarse on some file systems). */
   mtimeMs: number;
+  /** Exact timestamps and inode as decimal strings, used to detect changes without rounding. */
+  mtimeNs: string;
+  ctimeNs: string;
+  ino: string;
 }
 
 export interface Inventory {
