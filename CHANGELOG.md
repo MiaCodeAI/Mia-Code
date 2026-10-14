@@ -2,6 +2,29 @@
 
 All notable changes are documented here. Format based on Keep a Changelog; versioning is semantic.
 
+## [0.3.0] - Unreleased
+
+Phase 3: Controlled coding agent, plus multi-key rotation and the MIA CODE banner.
+
+### Added
+
+- Agent loop with native tool calling (OpenAI-compatible and Anthropic adapters stream tool calls). Tools: `read_file`, `list_files`, `search_code`, `find_symbol`, `edit_file` (exact replacement), `write_file`, `run_command`, `run_tests`, `git_status`, `git_diff`, `git_log`, `git_commit`.
+- Permission modes: `readonly`, `ask` (default), `auto-edit`, `auto`; plus `chat` (no tools) in the interactive session. Edits show a diff before approval; "always" is available per session.
+- Hard safety blocks in every mode: push, publish, deploy, force/destructive git, privilege escalation, broad deletes, piping downloads into a shell, dumping the environment, reading secret files. Writes are confined to the project (no secrets, dependencies, build output, `.git`, symlinks). Child processes get an environment without credential-like variables.
+- Checkpoints: `/diff` shows all changes made by the agent; `/undo` reverts the last change set (skipping files you edited since).
+- Loop safeguards: step limit, stop on repeated identical failing actions or four consecutive tool failures, cancellation with Ctrl-C, bounded history with older tool output shortened.
+- `mia run <task>`: one agent task from the command line. Interactive session commands `/mode`, `/diff`, `/undo`, `/keys`.
+- Several API keys per provider: `mia auth login <provider> --label <name>`, comma-separated keys in an environment variable. Mia Code stays on one key and switches automatically when it runs out of quota, is rate limited, is rejected, or the provider has an outage. Parked keys return after a cooldown; every switch is announced. `auth list` and `auth remove --label/--all` handle labels.
+- "MIA CODE" startup banner with session details.
+
+### Known limitations
+
+- Tool calling depends on the model and endpoint; some OpenAI-compatible servers reject `tools` (use `/mode chat`).
+- Undo covers only edits made through the edit/write tools, only for the current session; shell commands are not tracked.
+- The command block list is a guardrail, not a sandbox. Use a container or VM for untrusted work.
+- Key rotation switches before any output is streamed; an error in the middle of a reply is reported rather than retried on another key. Key state lives in memory for the session.
+- Not yet verified against live providers; Anthropic and OpenAI wire formats are tested against mocks only.
+
 ## [0.2.0] - Unreleased
 
 Phase 2: Repository intelligence. Still read-only: nothing edits files or runs project code.

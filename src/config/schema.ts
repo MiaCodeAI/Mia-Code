@@ -12,6 +12,8 @@ export interface ProviderConfig {
   preset?: string;
   /** Name of an environment variable holding the API key. The key itself is never stored here. */
   apiKeyEnv?: string;
+  /** Labels of additional API keys stored in the credential store (the keys themselves are never in config). */
+  keyLabels?: string[];
   maxOutputTokens?: number;
   temperature?: number;
   timeoutMs?: number;
@@ -64,6 +66,7 @@ export class ConfigError extends Error {
   }
 }
 
+export const KEY_LABEL = /^[a-z0-9][a-z0-9_-]{0,23}$/;
 export const PROVIDER_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -139,6 +142,7 @@ function validateProvider(
       'model',
       'preset',
       'apiKeyEnv',
+      'keyLabels',
       'maxOutputTokens',
       'temperature',
       'timeoutMs',
@@ -183,6 +187,19 @@ function validateProvider(
     if (typeof apiKeyEnv === 'string' && ENV_NAME.test(apiKeyEnv)) provider.apiKeyEnv = apiKeyEnv;
     else
       errors.push(`${where}.apiKeyEnv must be an environment variable NAME (not the key itself)`);
+  }
+  const keyLabels = raw['keyLabels'];
+  if (keyLabels !== undefined) {
+    if (
+      Array.isArray(keyLabels) &&
+      keyLabels.length <= 32 &&
+      keyLabels.every((l) => typeof l === 'string' && KEY_LABEL.test(l))
+    )
+      provider.keyLabels = [...new Set(keyLabels as string[])];
+    else
+      errors.push(
+        `${where}.keyLabels must be a list of labels (a-z, 0-9, "-", "_"; up to 24 characters)`,
+      );
   }
   const maxOutputTokens = intInRange(
     raw['maxOutputTokens'],

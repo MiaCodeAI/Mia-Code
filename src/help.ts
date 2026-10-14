@@ -3,21 +3,23 @@ const MAIN = `Mia Code - open-source, bring-your-own-key AI coding assistant for
 Usage:
   mia                          Start an interactive session in the current folder
   mia ask <question>           Ask one question and print the answer
+  mia run [--mode <mode>] <task>  Let the agent read, edit and test (asks before changing anything)
   mia scan [--json|--full]     Show a map of this project (local only)
   mia search <text>            Search project files (local only)
   mia audit [--mode <mode>]    Read-only static audit with a findings report
   mia init                     Guided setup: provider, API key, model, connectivity test
   mia doctor [--online]        Check this machine and your setup
-  mia auth <login|list|remove> Manage API keys (stored in your OS credential store)
+  mia auth <login|list|remove> Manage API keys (several per provider with --label) (stored in your OS credential store)
   mia provider <list|add|test|use|remove>
   mia model <list|use>         List and select models
   mia config [show|path|edit]  View or edit the configuration file
   mia help [command]           Show help
   mia --version                Print the version
 
-Current status: read-only. Mia Code maps your project, searches it, audits it, and answers
-questions using excerpts of the files most relevant to each question (shown before sending,
-secrets excluded). It cannot yet edit code or run commands.
+Mia Code maps, searches and audits your project, answers from the files most relevant to each
+question, and can act as a coding agent: it edits files with a reviewable diff, runs your tests
+and commands, and can undo its edits. Every change asks for approval unless you choose a more
+permissive mode (readonly, ask, auto-edit, auto). Several API keys per provider rotate automatically.
 Run "mia help <command>" for details, and see docs/ for guides.`;
 
 const TOPICS: Record<string, string> = {
@@ -43,6 +45,16 @@ Options:
 Excerpts are chosen locally (names in your question, symbols, text matches), never include
 secret files, and are listed on stderr before sending. After the answer, any file:line citations
 are checked against what was sent.`,
+
+  run: `mia run [--mode readonly|ask|auto-edit|auto] [--max-steps <n>] [--diff] [--provider p] [--model m] <task>
+
+Runs one agent task: it reads and searches the project, edits files, runs tests and commands, and
+reports what it verified. Modes control approvals: readonly (no changes), ask (default: approve
+each edit and command), auto-edit (edits applied, commands asked), auto (nothing asked; dangerous
+commands such as push, publish, deploy, sudo and reading secrets are still blocked).
+Without a terminal, actions that need approval are declined. File changes are tracked in this run
+and shown with --diff. Use a container or VM for untrusted work: the safety blocks are a
+guardrail, not a sandbox.`,
 
   scan: `mia scan [--json] [--full]
 
@@ -73,14 +85,18 @@ Checks Node.js, the config file, secure key storage, git, terminal capabilities 
 configured provider's key. --online also contacts each provider with a model-list request.
 Exit code is 1 if a blocking problem is found.`,
 
-  auth: `mia auth login [provider] [--stdin] [--no-validate]
+  auth: `mia auth login [provider] [--label <name>] [--stdin] [--no-validate]
 mia auth list
-mia auth remove <provider> [--yes]
+mia auth remove <provider> [--label <name> | --all] [--yes]
 
 login   Reads a key without echo (or from stdin with --stdin), checks it against the provider's
         own API, then stores it in your OS credential store (macOS Keychain, Linux Secret
         Service, Windows DPAPI). If no secure store exists, nothing is saved and you are shown
         how to use an environment variable instead. A rejected key is never stored.
+        --label adds an extra key (for example a second account or a backup). With more than one key,
+        Mia Code stays on one and automatically switches when it runs out of quota, is rate limited,
+        is rejected, or the provider has an outage. Environment variables may hold several keys
+        separated by commas.
 list    Shows each provider and where its key was found. Keys are never displayed.
 remove  Deletes the stored key for a provider.`,
 

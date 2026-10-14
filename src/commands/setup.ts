@@ -1,6 +1,7 @@
 import type { MiaConfig, ProviderConfig } from '../config/schema.js';
 import { PROVIDER_NAME } from '../config/schema.js';
 import type { Context } from '../context.js';
+import { keyAccount } from '../credentials/resolve.js';
 import { UserError } from '../errors.js';
 import { ProviderError } from '../providers/errors.js';
 import {
@@ -141,7 +142,7 @@ export async function loginProvider(
   ctx: Context,
   name: string,
   key: string,
-  options: { validate: boolean },
+  options: { validate: boolean; label?: string },
 ): Promise<LoginResult> {
   const cfg = await ctx.config.load();
   const providerConfig = getProviderConfig(cfg, name);
@@ -181,7 +182,14 @@ export async function loginProvider(
   const availability = await ctx.credentials.isAvailable();
   if (availability.available) {
     try {
-      await ctx.credentials.set(name, key);
+      await ctx.credentials.set(keyAccount(name, options.label), key);
+      if (options.label) {
+        const label = options.label;
+        await ctx.config.update((c) => {
+          const p = c.providers[name];
+          if (p) p.keyLabels = [...new Set([...(p.keyLabels ?? []), label])];
+        });
+      }
       return { models, storedIn: ctx.credentials.name, envInstructions: [], warnings };
     } catch (error) {
       warnings.push(`Secure storage failed: ${(error as Error).message}`);

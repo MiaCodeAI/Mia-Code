@@ -56,12 +56,17 @@ export async function askCommand(args: string[], ctx: Context): Promise<number> 
 
   const cfg = cfgEarly;
   const name = pickProviderName(cfg, str(values, 'provider'));
-  const runtime = await openProvider(ctx, cfg, name, (info) =>
-    ctx.printErr(
-      ctx.style.dim(
-        `${info.error.code.replace('_', ' ')}; retrying in ${Math.ceil(info.delayMs / 1000)}s (retry ${info.attempt})`,
+  const runtime = await openProvider(
+    ctx,
+    cfg,
+    name,
+    (info) =>
+      ctx.printErr(
+        ctx.style.dim(
+          `${info.error.code.replace('_', ' ')}; retrying in ${Math.ceil(info.delayMs / 1000)}s (retry ${info.attempt})`,
+        ),
       ),
-    ),
+    (_notice, message) => ctx.printErr(ctx.style.yellow(`[key rotation] ${message}`)),
   );
   const model = str(values, 'model') ?? runtime.config.model;
   if (!model)

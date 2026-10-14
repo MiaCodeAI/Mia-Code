@@ -3,7 +3,7 @@
 An open-source, cross-platform, **bring-your-own-key** AI coding assistant for the terminal.
 
 > **Status: early development (v0.1.0, Phase 1 "Foundation").**
-> This release is a **read-only chat** assistant. It is _not_ yet an autonomous coding agent.
+> Mia Code reads, searches, audits and edits your project, and runs your tests, asking before it changes anything by default. It has not yet been verified against live providers, and its safety blocks are a guardrail, not a sandbox.
 > See [What works today](#what-works-today) and [Known limitations](#known-limitations) before relying on it.
 
 ## What works today
@@ -17,6 +17,8 @@ An open-source, cross-platform, **bring-your-own-key** AI coding assistant for t
 | Key storage         | OS credential store (Linux Secret Service, macOS Keychain, Windows DPAPI) or environment variables; never in config files |
 | Diagnostics         | `mia doctor` checks Node, config, key storage, git, providers                                                             |
 | Project context     | A repository overview plus line-numbered excerpts of the files most relevant to your question (listed before sending)     |
+| Coding agent        | `mia run` and the interactive session read, edit (with diff review), run tests and commands, and can `/undo` edits        |
+| Multiple keys       | Several API keys per provider with automatic rotation on quota, rate-limit, auth or outage errors                         |
 | Repo tools          | `mia scan`, `mia search`, `mia audit` run locally and send nothing                                                        |
 | Usage               | Token counts per reply; cost estimates only when you configure a dated price                                              |
 | Cancellation        | Ctrl-C stops a reply; timeouts and bounded retries for rate limits/outages                                                |
@@ -58,7 +60,7 @@ mia model use <model-id>
 mia provider test
 ```
 
-Inside a session: `/help`, `/context` (shows exactly what is sent), `/usage`, `/model`, `/provider`, `/status`, `/clear`, `/quit`.
+Inside a session: `/mode`, `/diff`, `/undo`, `/keys`, `/scan`, `/search`, `/audit`, `/help`, `/context` (shows exactly what is sent), `/usage`, `/model`, `/provider`, `/status`, `/clear`, `/quit`.
 
 ## Commands
 
@@ -70,6 +72,8 @@ Inside a session: `/help`, `/context` (shows exactly what is sent), `/usage`, `/
 | `mia scan [--json\|--full]`                                         | Repository map (local only)                             |
 | `mia search [-e] [-i] [--symbol] <text>`                            | Search project files (local only)                       |
 | `mia audit [--mode m] [--format f] [--fail-on s]`                   | Read-only static audit (local only)                     |
+| `mia run [--mode m] [--max-steps n] <task>`                         | One agent task (reads, edits, runs tests)               |
+| `mia auth login <p> --label <name>`                                 | Add another API key for automatic rotation              |
 | `mia init`                                                          | Guided setup                                            |
 | `mia doctor [--online] [--json]`                                    | Diagnostics                                             |
 | `mia auth login\|list\|remove`                                      | Manage API keys                                         |

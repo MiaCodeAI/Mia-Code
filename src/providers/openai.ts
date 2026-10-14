@@ -4,7 +4,8 @@ import { ProviderError, errorFromException, errorFromStreamError } from './error
 import { RequestScope, readJson, sendRequest } from './http.js';
 import { streamWithRetry, withRetry, type RetryPolicy } from './retry.js';
 import { parseSse } from './sse.js';
-import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types.js';
+import { buildToolCall } from './tools.js';
+import type { ChatMessage, ChatRequest, ModelInfo, Provider, StreamEvent } from './types.js';
 
 export interface OpenAICompatibleOptions {
   name: string;
@@ -120,9 +121,15 @@ export class OpenAICompatibleProvider implements Provider {
     try {
       const body: Record<string, unknown> = {
         model: request.model,
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: request.messages.map(toWireMessage),
         stream: true,
       };
+      if (request.tools && request.tools.length > 0) {
+        body['tools'] = request.tools.map((t) => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        }));
+      }
       if (includeUsage) body['stream_options'] = { include_usage: true };
       if (request.maxOutputTokens !== undefined)
         body[this.maxTokensParam] = request.maxOutputTokens;
@@ -149,6 +156,7 @@ export class OpenAICompatibleProvider implements Provider {
 
       let stopReason: string | undefined;
       let finished = false;
+      const pending = new Map<number, { id: string; name: string; args: string }>();
       try {
         for await (const sse of parseSse(response.body, () => scope.touch())) {
           if (sse.data === '[DONE]') {
@@ -175,6 +183,24 @@ export class OpenAICompatibleProvider implements Provider {
             const delta = choice['delta'];
             const text = isRecord(delta) ? asString(delta['content']) : undefined;
             if (text) yield { type: 'text', text };
+            const calls = isRecord(delta) ? delta['tool_calls'] : undefined;
+            if (Array.isArray(calls)) {
+              for (const raw of calls) {
+                if (!isRecord(raw)) continue;
+                const index = asNumber(raw['index']) ?? 0;
+                const entry = pending.get(index) ?? { id: '', name: '', args: '' };
+                const id = asString(raw['id']);
+                if (id) entry.id = id;
+                const fn = raw['function'];
+                if (isRecord(fn)) {
+                  const name = asString(fn['name']);
+                  if (name) entry.name += name;
+                  const args = asString(fn['arguments']);
+                  if (args) entry.args += args;
+                }
+                pending.set(index, entry);
+              }
+            }
             const reason = asString(choice['finish_reason']);
             if (reason) {
               stopReason = reason;
@@ -202,9 +228,34 @@ export class OpenAICompatibleProvider implements Provider {
             'The response stream ended before the model finished. The answer above may be incomplete.',
         });
       }
+      for (const [index, entry] of [...pending.entries()].sort((a, b) => a[0] - b[0])) {
+        if (entry.name === '') continue;
+        yield {
+          type: 'tool_call',
+          call: buildToolCall(entry.id || `call_${index}`, entry.name, entry.args),
+        };
+      }
       yield stopReason === undefined ? { type: 'done' } : { type: 'done', stopReason };
     } finally {
       scope.close();
     }
   }
+}
+
+function toWireMessage(m: ChatMessage): Record<string, unknown> {
+  if (m.role === 'tool') {
+    return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content };
+  }
+  if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+    return {
+      role: 'assistant',
+      content: m.content === '' ? null : m.content,
+      tool_calls: m.toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: JSON.stringify(c.arguments) },
+      })),
+    };
+  }
+  return { role: m.role, content: m.content };
 }

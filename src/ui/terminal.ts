@@ -10,6 +10,8 @@ export interface Terminal {
   readSecret(prompt: string): Promise<string | null>;
   /** Called when the user presses Ctrl-C. Without a handler, input is closed. */
   onInterrupt(handler: (() => void) | undefined): void;
+  /** Resolves a pending readLine with an empty line (used to leave a prompt on Ctrl-C). */
+  cancelPending?(): void;
   close(): void;
 }
 
@@ -64,6 +66,11 @@ export class StdioTerminal implements Terminal {
 
   onInterrupt(handler: (() => void) | undefined): void {
     this.interruptHandler = handler;
+  }
+
+  cancelPending(): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter('');
   }
 
   async readLine(prompt: string): Promise<string | null> {
