@@ -2,6 +2,29 @@
 
 All notable changes are documented here. Format based on Keep a Changelog; versioning is semantic.
 
+## [0.2.0] - Unreleased
+
+Phase 2: Repository intelligence. Still read-only: nothing edits files or runs project code.
+
+### Added
+
+- `mia scan`: repository map (languages, frameworks, inferred commands, directories, key modules, routes, environment variable names, test association), `--json` and `--full`.
+- `mia search`: ripgrep-backed text search with a built-in fallback; `--symbol` for definitions; results limited to files the exclusion policy allows.
+- `mia audit`: read-only static audit (modes quick, standard, deep, security, deployment, custom; text/json/markdown; `--fail-on`; `--output` refused inside the project). Findings carry confidence and how they were verified; the report lists what it cannot assess.
+- Evidence-based answers: `ask` and the interactive session send line-numbered excerpts of the files most relevant to the question (shown before sending, secrets excluded, budgeted by `limits.evidenceChars` and the model's context window), then check `path:line` citations against what was sent. `--no-evidence`, `--show-context` extended.
+- Safe file reader (no traversal, symlinks, excluded or binary files) and incremental index that re-reads only changed files.
+- Session commands `/scan`, `/search`, `/audit`.
+
+### Changed
+
+- The project snapshot was replaced by the repository index and overview.
+
+### Known limitations
+
+- Symbols, imports and routes come from pattern matching, not parsers; relevance ranking is heuristic.
+- The audit is static: no dependency vulnerability database, no runtime or performance analysis.
+- Still no editing, command execution or test running.
+
 ## [0.1.0] - Unreleased
 
 Phase 1: Foundation. Read-only chat assistant.

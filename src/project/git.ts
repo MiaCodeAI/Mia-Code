@@ -48,6 +48,22 @@ export async function readGitInfo(
   return { root: top.stdout.trim(), branch, changedPaths };
 }
 
+/** Lists only the files git tracks (committed or staged), relative to `cwd`. */
+export async function listTrackedFiles(
+  run: Runner,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string[] | null> {
+  const result = await run('git', safeGitArgs(['ls-files', '-z', '--cached']), {
+    cwd,
+    env: safeGitEnv(env),
+    timeoutMs: 15_000,
+    maxOutputBytes: 8_000_000,
+  });
+  if (result.exitCode !== 0) return null;
+  return result.stdout.split('\0').filter((p) => p !== '');
+}
+
 /** Lists tracked and untracked-but-not-ignored files, relative to `cwd`, honouring .gitignore. */
 export async function listGitFiles(
   run: Runner,

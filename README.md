@@ -16,7 +16,8 @@ An open-source, cross-platform, **bring-your-own-key** AI coding assistant for t
 | Providers           | OpenAI-compatible adapter and a native Anthropic adapter (see [provider status](docs/providers.md))                       |
 | Key storage         | OS credential store (Linux Secret Service, macOS Keychain, Windows DPAPI) or environment variables; never in config files |
 | Diagnostics         | `mia doctor` checks Node, config, key storage, git, providers                                                             |
-| Project context     | A file-**name** overview (honouring `.gitignore` and secret/dependency exclusions) plus the first 2 KB of the README      |
+| Project context     | A repository overview plus line-numbered excerpts of the files most relevant to your question (listed before sending)     |
+| Repo tools          | `mia scan`, `mia search`, `mia audit` run locally and send nothing                                                        |
 | Usage               | Token counts per reply; cost estimates only when you configure a dated price                                              |
 | Cancellation        | Ctrl-C stops a reply; timeouts and bounded retries for rate limits/outages                                                |
 
@@ -61,27 +62,30 @@ Inside a session: `/help`, `/context` (shows exactly what is sent), `/usage`, `/
 
 ## Commands
 
-| Command                                             | Purpose                                       |
-| --------------------------------------------------- | --------------------------------------------- |
-| `mia`                                               | Interactive session in the current folder     |
-| `mia ask [--provider p] [--model m] [--no-context]` | One question, streamed answer                 |
-| `mia ask --show-context`                            | Print the project overview that would be sent |
-| `mia init`                                          | Guided setup                                  |
-| `mia doctor [--online] [--json]`                    | Diagnostics                                   |
-| `mia auth login\|list\|remove`                      | Manage API keys                               |
-| `mia provider list\|add\|test\|use\|remove`         | Manage providers                              |
-| `mia model list\|use`                               | List and select models                        |
-| `mia config [show\|path\|edit]`                     | Inspect or edit the config file               |
-| `mia help [command]`, `mia --version`               | Help and version                              |
+| Command                                                             | Purpose                                                 |
+| ------------------------------------------------------------------- | ------------------------------------------------------- |
+| `mia`                                                               | Interactive session in the current folder               |
+| `mia ask [--provider p] [--model m] [--no-context] [--no-evidence]` | One question, streamed answer                           |
+| `mia ask --show-context`                                            | Print the overview and file excerpts that would be sent |
+| `mia scan [--json\|--full]`                                         | Repository map (local only)                             |
+| `mia search [-e] [-i] [--symbol] <text>`                            | Search project files (local only)                       |
+| `mia audit [--mode m] [--format f] [--fail-on s]`                   | Read-only static audit (local only)                     |
+| `mia init`                                                          | Guided setup                                            |
+| `mia doctor [--online] [--json]`                                    | Diagnostics                                             |
+| `mia auth login\|list\|remove`                                      | Manage API keys                                         |
+| `mia provider list\|add\|test\|use\|remove`                         | Manage providers                                        |
+| `mia model list\|use`                                               | List and select models                                  |
+| `mia config [show\|path\|edit]`                                     | Inspect or edit the config file                         |
+| `mia help [command]`, `mia --version`                               | Help and version                                        |
 
 Every command above is implemented and covered by tests. Commands from the long-term specification that are **not** implemented
-yet (`audit`, `/plan`, `/review`, `/diff`, `/undo`, `/resume`, `/compact`, …) are intentionally absent rather than stubbed.
+yet (`/plan`, `/review`, `/diff`, `/undo`, `/resume`, `/compact`, …) are intentionally absent rather than stubbed.
 
 ## Privacy and API-key security
 
 - **No telemetry, no account, no Mia Code server.** Requests go directly from your computer to the provider you configure.
 - **What the provider receives:** your messages, the conversation so far, and (unless `--no-context`) a file-name overview of the
-  current folder with the start of its README. Use `/context` or `mia ask --show-context` to see it. Your provider handles that data under its own terms.
+  current folder plus excerpts of the files judged relevant to each question (unless `--no-evidence`); the files are listed before sending. Use `/context` or `mia ask --show-context` to see it. Your provider handles that data under its own terms.
 - **Keys** are stored in your OS credential store, passed to helper programs on stdin (never on a command line), masked in all output,
   refused by the config writer, and only ever sent to the host you configured. Redirects are not followed.
 - **Excluded from context:** `.env*` (except templates), private keys/certificates, credential files, `node_modules`, virtualenvs, build output, caches, `.git`, binaries, and anything `.gitignore` excludes.

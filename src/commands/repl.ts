@@ -3,10 +3,17 @@ import type { Context } from '../context.js';
 import { UserError } from '../errors.js';
 import { describeCapabilities, resolveCapabilities } from '../providers/capabilities.js';
 import { ProviderError } from '../providers/errors.js';
-import { buildSnapshot, renderSnapshot, type ProjectSnapshot } from '../project/snapshot.js';
+import { readGitInfo, type GitInfo } from '../project/git.js';
+import { RepoIndex } from '../repo/index.js';
+import {
+  citationSummary,
+  evidenceBudget,
+  groundTurn,
+  type GroundedTurn,
+} from '../session/grounding.js';
+import { auditCommand, searchCommand, scanCommand } from './repo.js';
 import { hostOf } from '../security/endpoint.js';
 import { ChatSession, estimateCost } from '../session/chat.js';
-import { buildSystemPrompt } from '../session/prompt.js';
 import { formatCost, formatUsage } from '../ui/format.js';
 import { suggest } from '../util/suggest.js';
 import { flag, parseFlags, str } from './flags.js';
@@ -16,6 +23,9 @@ export const SLASH_COMMANDS: Record<string, string> = {
   '/help': 'Show this list',
   '/status': 'Show project, provider, model and session state',
   '/context': 'Show exactly what project overview is sent to the model',
+  '/scan': 'Show the repository map (local only; nothing is sent)',
+  '/search': 'Search the project: /search <text> (local only)',
+  '/audit': 'Run a read-only audit: /audit [--mode quick|standard|deep|security|deployment]',
   '/usage': 'Show token usage and cost estimate for this session',
   '/model': 'Show the current model; "/model <id>" switches model for this session',
   '/provider': 'Show the current provider; "/provider <name>" switches for this session',
@@ -26,8 +36,12 @@ export const SLASH_COMMANDS: Record<string, string> = {
 interface ReplState {
   runtime: ProviderRuntime;
   model: string | undefined;
-  snapshot: ProjectSnapshot | null;
+  git: GitInfo | null;
+  index: RepoIndex;
   overview: string | null;
+  evidence: boolean;
+  lastTurn: GroundedTurn | null;
+  lastQuestion: string | undefined;
   config: MiaConfig;
   session: ChatSession;
   includeContext: boolean;
@@ -48,7 +62,12 @@ function costLine(state: ReplState): string {
 export async function replCommand(args: string[], ctx: Context): Promise<number> {
   const { values } = parseFlags(
     args,
-    { provider: { type: 'string' }, model: { type: 'string' }, 'no-context': { type: 'boolean' } },
+    {
+      provider: { type: 'string' },
+      model: { type: 'string' },
+      'no-context': { type: 'boolean' },
+      'no-evidence': { type: 'boolean' },
+    },
     false,
   );
   const { style } = ctx;
@@ -72,19 +91,25 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
   );
 
   const includeContext = !flag(values, 'no-context');
-  const snapshot = includeContext ? await buildSnapshot(ctx.cwd, ctx.run, { env: ctx.env }) : null;
+  const index = new RepoIndex(ctx.cwd, ctx.run, ctx.env);
+  const evidence = includeContext && !flag(values, 'no-evidence');
+  const git = includeContext ? await readGitInfo(ctx.run, ctx.cwd, ctx.env) : null;
   const state: ReplState = {
     runtime,
     model: str(values, 'model') ?? runtime.config.model,
-    snapshot,
-    overview: snapshot ? renderSnapshot(snapshot) : null,
+    git,
+    index,
+    overview: null,
+    evidence,
+    lastTurn: null,
+    lastQuestion: undefined,
     config,
     session: new ChatSession(),
     includeContext,
   };
 
-  const branch = snapshot?.git
-    ? `${snapshot.git.branch ?? '?'}${snapshot.git.changedPaths ? ` (${snapshot.git.changedPaths} changed)` : ' (clean)'}`
+  const branch = git
+    ? `${git.branch ?? '?'}${git.changedPaths ? ` (${git.changedPaths} changed)` : ' (clean)'}`
     : 'no git';
   ctx.print(
     style.bold(`Mia Code ${ctx.version}`) +
@@ -99,7 +124,7 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
   );
   ctx.print(
     style.dim(
-      `  sends     ${includeContext ? 'your messages + a file-name overview of this project (see /context)' : 'your messages only'}`,
+      `  sends     ${includeContext ? `your messages + a file-name overview${evidence ? ' + excerpts of relevant files' : ''} (see /context)` : 'your messages only'}`,
     ),
   );
   ctx.print(style.dim('  Type a question, or /help. Ctrl-C cancels a reply; Ctrl-D exits.'));
@@ -135,10 +160,21 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
 
       controller = new AbortController();
       try {
+        const turn = await groundTurn(state.index, ctx, text, {
+          overview: state.includeContext,
+          evidence: state.evidence,
+          budgetChars: evidenceBudget(config, state.runtime.name, state.model),
+          ...(state.lastQuestion !== undefined ? { previousQuestion: state.lastQuestion } : {}),
+        });
+        state.overview = turn.overview;
+        state.lastTurn = turn;
+        state.lastQuestion = text;
+        if (turn.files.length > 0)
+          ctx.print(style.dim(`  sending excerpts from: ${turn.files.join(', ')}`));
         const result = await state.session.send(text, {
           provider: state.runtime.provider,
           model: state.model,
-          system: buildSystemPrompt(state.overview),
+          system: turn.system,
           maxOutputTokens: state.runtime.config.maxOutputTokens ?? config.limits.maxOutputTokens,
           ...(state.runtime.config.temperature !== undefined
             ? { temperature: state.runtime.config.temperature }
@@ -148,7 +184,9 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
         });
         ctx.print();
         if (result.cancelled) ctx.print(style.yellow('[cancelled]'));
-        else
+        else {
+          const cites = citationSummary(result.text, turn, state.index);
+          if (cites) ctx.print(style.dim(cites));
           ctx.print(
             style.dim(
               formatUsage(
@@ -157,6 +195,7 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
               ),
             ),
           );
+        }
       } catch (error) {
         ctx.print();
         if (error instanceof ProviderError) ctx.print(style.red(error.describe()));
@@ -194,7 +233,26 @@ async function handleSlash(input: string, state: ReplState, ctx: Context): Promi
       ctx.print('Conversation cleared.');
       return false;
     case '/context':
-      ctx.print(state.overview ?? '(project overview is disabled for this session)');
+      ctx.print(
+        state.overview ??
+          '(nothing sent yet, or the project overview is disabled for this session)',
+      );
+      if (state.lastTurn?.bundle && state.lastTurn.bundle.excerpts.length > 0)
+        ctx.print(
+          '\nExcerpts sent with the last question:\n' +
+            state.lastTurn.bundle.excerpts
+              .map((e) => `  ${e.path}:${e.startLine}-${e.endLine}  (${e.reason})`)
+              .join('\n'),
+        );
+      return false;
+    case '/scan':
+      await scanCommand(rest, ctx);
+      return false;
+    case '/search':
+      await searchCommand(rest, ctx);
+      return false;
+    case '/audit':
+      await auditCommand(rest, ctx);
       return false;
     case '/usage': {
       const t = state.session.totals;

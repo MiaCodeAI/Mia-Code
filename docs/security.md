@@ -17,7 +17,8 @@
 
 - **Redaction is best-effort pattern matching.** It masks known key shapes and every key Mia Code itself loaded, but cannot recognise every possible secret format.
   The project overview (file names and README start) is also redacted, but a secret placed in a README or a file name could still be sent. Review `/context`.
-- Excluding files by name cannot catch secrets stored in ordinary-looking files. This release never reads file contents other than the README excerpt.
+- Excluding files by name cannot catch secrets stored in ordinary-looking files. Excerpts sent with a question are redacted, and files containing private keys are skipped, but a secret embedded in ordinary source can still be sent; use `--show-context` to review, or `--no-evidence` to send none.
+- The audit never prints secret values (token previews show a prefix and length only) and never writes inside the audited project.
 - **Windows** stores keys with DPAPI scoped to your Windows user (not Credential Manager, which cannot be read back from a command line). Anyone who can run code as you can read them.
 - Environment variables are visible to other processes of the same user on many systems.
 - Application-level permissions are **not** an operating-system sandbox. When later phases add editing and command execution, stronger isolation
