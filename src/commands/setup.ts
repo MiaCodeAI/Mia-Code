@@ -13,6 +13,7 @@ import {
 } from '../providers/registry.js';
 import { makeRetryPolicy } from '../providers/retry.js';
 import type { ModelInfo } from '../providers/types.js';
+import { probeToolCalling, type ToolSupport } from '../providers/toolsupport.js';
 import { EndpointError, hostOf, isLoopbackHost, normalizeBaseUrl } from '../security/endpoint.js';
 import { registerSecret } from '../security/redact.js';
 import { ask, choose, confirm } from '../ui/prompts.js';
@@ -320,6 +321,26 @@ export interface TestStep {
 export interface TestOutcome {
   ok: boolean;
   steps: TestStep[];
+  /** Result of the tool-calling probe, when it ran. */
+  toolSupport?: ToolSupport;
+}
+
+/** Remembers a definitive tool-calling result so sessions start in the right mode. */
+export async function recordToolSupport(
+  ctx: Context,
+  provider: string,
+  model: string,
+  support: ToolSupport | undefined,
+): Promise<void> {
+  if (support !== 'supported' && support !== 'unsupported') return;
+  await ctx.config.update((c) => {
+    const key = `${provider}/${model}`;
+    c.capabilities[key] = {
+      ...c.capabilities[key],
+      tools: support === 'supported',
+      notes: `tool calling tested by Mia Code: ${support}`,
+    };
+  });
 }
 
 /** Authentication check, model check and a minimal streamed request (a few tokens). */
@@ -422,5 +443,16 @@ export async function testProvider(
         ? `completed in ${seconds}s but returned no text (a reasoning model may have used the small token budget)`
         : `completed in ${seconds}s${tokens ? `, tokens${tokens}` : ''}`,
   });
-  return { ok: true, steps };
+  const probe = await probeToolCalling(runtime.provider, model);
+  steps.push({
+    label: 'Tool calling',
+    status: probe.status === 'supported' ? 'ok' : 'warn',
+    detail:
+      probe.status === 'supported'
+        ? probe.detail
+        : probe.status === 'unknown'
+          ? probe.detail
+          : `${probe.detail}. Mia Code needs tool calling to read, edit and run things; with this model it can only chat. Pick another model with "mia model list" / "mia model use <id>".`,
+  });
+  return { ok: true, steps, toolSupport: probe.status };
 }

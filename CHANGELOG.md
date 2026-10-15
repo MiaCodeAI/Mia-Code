@@ -19,6 +19,8 @@ Phase 4: hardening and a more dependable workflow.
 
 ### Changed
 
+- Plain-English input: in a session, phrases such as "undo", "scan project", "switch to auto-edit mode", "list models", "run a security audit", "make a plan for X" run the matching command locally; from the shell, `mia <words>` runs the matching command or becomes an agent task (answered as a question when the model cannot use tools). New agent tools `project_overview` and `audit_project` (read-only) so "scan the project" and "audit this" work through the model too; system prompts now tell the model how Mia is controlled. New `/models` and `/doctor` session commands.
+- Models that reject tool calling (for example some Groq models) no longer end the session with an error: Mia Code explains, switches to chat mode and answers the same question; `/model <id>` restores the previous mode. `mia init` and `mia provider test` now test tool calling with a harmless dummy tool, record a definitive result, and sessions start in chat mode for models recorded as unsupported. `mia run` explains and suggests choosing another model.
 - Arrow-key (scrolling) menus for provider and model choice on real terminals; numbered fallback for pipes.
 - Linux without `secret-tool`/keyring: opt-in private key file fallback (`0600`, not encrypted) so keys can be saved; `auth login --file-store`. Wrong-provider key hint on 401.
 - `npm run build` sets the executable bit on `dist/cli.js` (fixes `Permission denied` after `npm link`).

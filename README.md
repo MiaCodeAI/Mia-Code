@@ -64,6 +64,25 @@ mia provider test
 
 Inside a session: `/plan`, `/skill`, `/skills`, `/instructions`, `/mode`, `/diff`, `/undo`, `/revert`, `/keys`, `/scan`, `/search`, `/audit`, `/help`, `/context` (shows exactly what is sent), `/usage`, `/model`, `/provider`, `/status`, `/clear`, `/quit`.
 
+## Plain English
+
+You do not need to remember command syntax. In a session, and from the shell, say what you want:
+
+```text
+mia> scan project                    mia> switch to auto-edit mode
+mia> undo that                       mia> list models / use model llama-3.3-70b-versatile
+mia> run a security audit            mia> make a plan for adding login
+mia> show me what you changed        mia> how many tokens have I used
+```
+
+```bash
+mia please scan the project          # runs "mia scan"
+mia explain how login works          # anything else becomes an agent task (asks before changing files)
+mia fix the failing test
+```
+
+Short phrases that mean one of Mia's own commands run that command locally (the matching command is printed as `→ /undo`), with no model call. Everything else goes to the model, which can search, read, edit and run things within your permission mode. Matching is English-only and deliberately narrow: wording it does not recognise is simply treated as a request to the model, which understands any language. A mistyped single word (`mia scna`) is reported as a typo rather than guessed.
+
 ## Commands
 
 | Command                                                                                 | Purpose                                                 |

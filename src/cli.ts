@@ -13,6 +13,8 @@ import { ConfigError } from './config/schema.js';
 import { createDefaultContext, type Context } from './context.js';
 import { UsageError, UserError } from './errors.js';
 import { helpTopics, mainHelp, topicHelp } from './help.js';
+import { routeIntent } from './nl/intent.js';
+import { naturalCommand } from './commands/natural.js';
 import { suggest } from './util/suggest.js';
 
 type Handler = (args: string[], ctx: Context) => Promise<number>;
@@ -67,13 +69,15 @@ export async function run(argv: string[], ctx: Context): Promise<number> {
     if (first === undefined || first.startsWith('-')) {
       return await replCommand(argv, ctx);
     }
-    const handler = COMMANDS[first];
-    if (!handler) {
-      const hint = suggest(first, [...Object.keys(COMMANDS), 'help']);
-      throw new UsageError(
-        `Unknown command "${first}".${hint ? ` Did you mean "mia ${hint}"?` : ''} Run "mia help" for the list.`,
-      );
+    // "mia scan the project", "mia audit this repo": a known command followed by plain words.
+    if (argv.length > 1 && !argv.some((a) => a.startsWith('-'))) {
+      const routed = routeIntent(argv.join(' '));
+      const target = routed?.cli?.[0];
+      if (routed?.cli && target === first && COMMANDS[first])
+        return await COMMANDS[first](routed.cli.slice(1), ctx);
     }
+    const handler = COMMANDS[first];
+    if (!handler) return await naturalCommand(argv, ctx, COMMANDS);
     return await handler(rest, ctx);
   } catch (error) {
     if (error instanceof UsageError) {

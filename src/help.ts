@@ -20,6 +20,9 @@ Mia Code maps, searches and audits your project, answers from the files most rel
 question, and can act as a coding agent: it edits files with a reviewable diff, runs your tests
 and commands, and can undo its edits. Every change asks for approval unless you choose a more
 permissive mode (readonly, ask, auto-edit, auto). Several API keys per provider rotate automatically.
+You can also just say what you want: "mia scan the project", "mia fix the failing test",
+and in a session "undo", "switch to auto-edit mode", "list models". Anything that is not a command
+is understood as a request (the agent asks before changing anything).
 Run "mia help <command>" for details, and see docs/ for guides.`;
 
 const TOPICS: Record<string, string> = {
