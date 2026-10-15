@@ -37,6 +37,7 @@ async function login(args: string[], ctx: Context): Promise<number> {
   const { values, positionals } = parseFlags(args, {
     stdin: { type: 'boolean' },
     'no-validate': { type: 'boolean' },
+    'file-store': { type: 'boolean' },
     label: { type: 'string' },
   });
   const label = str(values, 'label');
@@ -80,6 +81,7 @@ async function login(args: string[], ctx: Context): Promise<number> {
   const key = await readApiKey(ctx, name);
   const result = await loginProvider(ctx, name, key, {
     validate: !flag(values, 'no-validate'),
+    allowFileStore: flag(values, 'file-store'),
     ...(label ? { label } : {}),
   });
 

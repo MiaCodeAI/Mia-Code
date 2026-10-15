@@ -115,6 +115,19 @@ export async function readApiKey(ctx: Context, providerName: string): Promise<st
   return key;
 }
 
+/** Keys carry their issuer's prefix; pointing one out saves a confusing 401. */
+export function wrongProviderHint(key: string, provider: string): string | null {
+  const known: [RegExp, string][] = [
+    [/^sk-or-/, 'openrouter'],
+    [/^sk-ant-/, 'anthropic'],
+    [/^gsk_/, 'groq'],
+  ];
+  for (const [re, issuer] of known)
+    if (re.test(key) && provider !== issuer)
+      return `This key looks like an ${issuer} key, but you are signing in to "${provider}". Choose ${issuer} as the provider.`;
+  return null;
+}
+
 export interface LoginResult {
   models: ModelInfo[] | null;
   /** Name of the secure store used, or null when the key must come from an environment variable. */
@@ -142,7 +155,7 @@ export async function loginProvider(
   ctx: Context,
   name: string,
   key: string,
-  options: { validate: boolean; label?: string },
+  options: { validate: boolean; label?: string; allowFileStore?: boolean },
 ): Promise<LoginResult> {
   const cfg = await ctx.config.load();
   const providerConfig = getProviderConfig(cfg, name);
@@ -161,7 +174,10 @@ export async function loginProvider(
     } catch (error) {
       if (!(error instanceof ProviderError)) throw error;
       if (error.code === 'auth') {
-        throw new UserError(`${error.describe()}\n  The key was not stored.`);
+        const other = wrongProviderHint(key, name);
+        throw new UserError(
+          `${error.describe()}${other ? `\n  ${other}` : ''}\n  The key was not stored.`,
+        );
       }
       if (
         error.code === 'permission' ||
@@ -179,7 +195,28 @@ export async function loginProvider(
     }
   }
 
-  const availability = await ctx.credentials.isAvailable();
+  let availability = await ctx.credentials.isAvailable();
+  if (!availability.available && availability.offer) {
+    const offer = availability.offer;
+    ctx.print(
+      `${ctx.style.yellow('[!!]')} No system keyring is available: ${(availability.reason ?? 'unknown reason').replace(/\.$/, '')}.`,
+    );
+    ctx.print(
+      `${offer.description} The file is readable only by your user account but is NOT encrypted.`,
+    );
+    const agreed =
+      options.allowFileStore ||
+      (ctx.terminal().interactive &&
+        (await confirm(ctx, 'Store the key in that private file?', true)));
+    if (agreed) {
+      try {
+        await offer.enable();
+        availability = await ctx.credentials.isAvailable();
+      } catch (error) {
+        warnings.push(`Could not enable the private key file: ${(error as Error).message}`);
+      }
+    }
+  }
   if (availability.available) {
     try {
       await ctx.credentials.set(keyAccount(name, options.label), key);
@@ -229,7 +266,10 @@ export async function selectModel(
       'This provider did not offer a model list, so type the model id exactly as the provider documents it.',
     );
     chosen = await ask(ctx, 'Model id');
-  } else if (models.length <= 12) {
+  } else if (
+    models.length <= 12 ||
+    (ctx.terminal().interactive && ctx.terminal().select && ctx.stdoutIsTTY)
+  ) {
     const index = await choose(
       ctx,
       'Which model?',

@@ -4,7 +4,7 @@
 
 - Node.js 20 or newer (`node --version`).
 - An API key from a supported provider (you pay the provider directly; Mia Code is free).
-- Optional: `git` (branch and change info), a Secret Service keyring on Linux (`libsecret-tools`) for secure key storage.
+- Optional: `git` (branch and change info), a Secret Service keyring on Linux (`libsecret-tools`) for encrypted key storage (otherwise the private key file fallback is offered).
 
 ## 2. Install from source
 
@@ -25,8 +25,7 @@ mia init
 The wizard explains the bring-your-own-key model, shows the provider's official documentation link, reads your key **without echoing it**,
 validates it against the provider, stores it in your OS credential store, lets you pick a model, and offers a tiny connectivity test.
 
-If no secure store is available (for example a Linux server without a keyring), the key is **not saved**; you are shown how to supply it through
-an environment variable instead.
+If no secure store is available (for example a Linux server, container or minimal desktop without a keyring), Mia Code explains why and offers a **private key file** in your config directory (`credentials/`, folder `0700`, file `0600`). It is readable only by your user account but is **not encrypted**, and it is only used after you agree (or pass `--file-store`). If you decline, the key is not saved and you are shown how to supply it through an environment variable instead.
 
 ## 4. Use it
 

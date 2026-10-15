@@ -1,11 +1,17 @@
+import path from 'node:path';
 import type { ProviderConfig } from '../config/schema.js';
 import { configDir, type PathContext } from '../platform/paths.js';
 import { runCommand, type Runner } from '../platform/exec.js';
 import { findPreset } from '../providers/registry.js';
+import { FallbackCredentialStore, FileCredentialStore } from './file.js';
 import { LinuxSecretToolStore } from './linux.js';
 import { MacOSKeychainStore } from './macos.js';
 import { UnavailableCredentialStore, type CredentialStore } from './types.js';
 import { WindowsDpapiStore } from './windows.js';
+
+function fileStore(pathContext: PathContext): FileCredentialStore {
+  return new FileCredentialStore(path.join(configDir(pathContext), 'credentials'));
+}
 
 export function createCredentialStore(
   pathContext: PathContext,
@@ -15,11 +21,11 @@ export function createCredentialStore(
     case 'darwin':
       return new MacOSKeychainStore(run);
     case 'linux':
-      return new LinuxSecretToolStore(run);
+      return new FallbackCredentialStore(new LinuxSecretToolStore(run), fileStore(pathContext));
     case 'win32':
       return new WindowsDpapiStore(run, configDir(pathContext));
     default:
-      return new UnavailableCredentialStore();
+      return new FallbackCredentialStore(new UnavailableCredentialStore(), fileStore(pathContext));
   }
 }
 

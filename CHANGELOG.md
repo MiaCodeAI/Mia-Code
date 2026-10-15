@@ -19,6 +19,9 @@ Phase 4: hardening and a more dependable workflow.
 
 ### Changed
 
+- Arrow-key (scrolling) menus for provider and model choice on real terminals; numbered fallback for pipes.
+- Linux without `secret-tool`/keyring: opt-in private key file fallback (`0600`, not encrypted) so keys can be saved; `auth login --file-store`. Wrong-provider key hint on 401.
+- `npm run build` sets the executable bit on `dist/cli.js` (fixes `Permission denied` after `npm link`).
 - File writes, reads and undo are symlink-safe and revalidated at the mutation point.
 - The repo index compares exact nanosecond timestamps, inode and size, and re-reads recently modified files, so fast same-size edits are detected.
 - README and security guide brought up to date.

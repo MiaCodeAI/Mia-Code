@@ -26,12 +26,21 @@ export async function confirm(
   }
 }
 
-/** Shows numbered options and returns the zero-based index chosen (number or exact option text). */
+/**
+ * Returns the zero-based index chosen. On a real terminal this is an arrow-key menu that scrolls;
+ * otherwise (pipes, scripts, tests) it shows numbered options and accepts a number or exact text.
+ */
 export async function choose(
   ctx: Context,
   label: string,
   options: readonly string[],
 ): Promise<number> {
+  const terminal = ctx.terminal();
+  if (options.length > 1 && terminal.interactive && ctx.stdoutIsTTY && terminal.select) {
+    const picked = await terminal.select(label, options);
+    if (picked === null) throw new UserError('Cancelled.');
+    return picked;
+  }
   options.forEach((option, i) => ctx.print(`  ${i + 1}) ${option}`));
   for (;;) {
     const answer = await ask(ctx, label);

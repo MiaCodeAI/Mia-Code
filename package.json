@@ -33,7 +33,7 @@
     "byok"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node --input-type=module -e \"import('node:fs').then((f) => f.chmodSync('dist/cli.js', 0o755))\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
