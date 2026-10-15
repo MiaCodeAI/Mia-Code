@@ -237,7 +237,7 @@ export function renderRepoMap(map: RepoMap, options: { compact?: boolean } = {})
   );
   if (profile.instructionFiles.length > 0) {
     out.push(
-      `Agent instruction files found: ${profile.instructionFiles.join(', ')} (noted only; they are not applied in this version)`,
+      `Agent instruction files found: ${profile.instructionFiles.join(', ')} (MIA.md and AGENTS.md are applied by the agent; the others are noted only)`,
     );
   }
   if (profile.docs.length > 0) out.push(`Documentation: ${profile.docs.slice(0, 8).join(', ')}`);

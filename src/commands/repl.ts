@@ -27,7 +27,7 @@ import { hostOf } from '../security/endpoint.js';
 import { ChatSession, estimateCost } from '../session/chat.js';
 import { formatCost, formatUsage } from '../ui/format.js';
 import { suggest } from '../util/suggest.js';
-import { flag, parseFlags, str } from './flags.js';
+import { flag, parseFlags, str, type ParsedFlags } from './flags.js';
 import { openProvider, pickProviderName, type ProviderRuntime } from './runtime.js';
 
 export const SLASH_COMMANDS: Record<string, string> = {
@@ -63,7 +63,7 @@ interface ReplState {
   mode: PermissionMode | 'chat';
   agent: AgentSession;
   checkpoints: Checkpoints;
-  flags: Record<string, string | boolean | undefined>;
+  flags: ParsedFlags['values'];
   /** undefined until first resolved. */
   sandbox: ActiveSandbox | null | undefined;
 }

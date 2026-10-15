@@ -842,7 +842,8 @@ describe('mia run end to end', () => {
       const out = h.out.join('\n');
       expect(out).toContain('● edit greet.py');
       expect(out).toContain('+print("goodbye")');
-      expect(h.err.join('\n')).toMatch(/Changed: greet.py/);
+      expect(out).toMatch(/Changed files \(1\):\n\s+greet.py/);
+      expect(out).toContain('Checks not run');
       const second = f.calls[1]!.body as { messages: { role: string }[] };
       expect(second.messages.some((m) => m.role === 'tool')).toBe(true);
     } finally {
