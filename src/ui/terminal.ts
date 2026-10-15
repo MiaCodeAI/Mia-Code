@@ -110,30 +110,41 @@ export class StdioTerminal implements Terminal {
   private runSelect(label: string, options: readonly string[]): Promise<number | null> {
     const input = this.input;
     const out = this.output;
-    const total = options.length;
     const rows = out.rows || 24;
-    const windowSize = Math.max(3, Math.min(total, 10, rows - 4));
+    const windowSize = Math.max(3, Math.min(options.length, 10, rows - 5));
     const width = Math.max(20, (out.columns || 80) - 4);
+    let filter = '';
+    let view: number[] = options.map((_, i) => i);
     let cursor = 0;
     let top = 0;
     let drawn = 0;
 
     const clip = (text: string): string =>
       text.length > width ? `${text.slice(0, width - 1)}…` : text;
+    const refilter = (): void => {
+      const f = filter.toLowerCase();
+      view = options.flatMap((o, i) => (o.toLowerCase().includes(f) ? [i] : []));
+      cursor = 0;
+      top = 0;
+    };
     const draw = (): void => {
+      const total = view.length;
       if (cursor < top) top = cursor;
       if (cursor >= top + windowSize) top = cursor - windowSize + 1;
       if (drawn > 0) out.write(`\x1b[${drawn}A`);
       const lines: string[] = [];
       for (let i = top; i < Math.min(total, top + windowSize); i++) {
-        const text = clip(options[i] ?? '');
+        const text = clip(options[view[i] ?? 0] ?? '');
         lines.push(i === cursor ? `\x1b[36m❯ ${text}\x1b[0m` : `  ${text}`);
       }
-      const above = top > 0 ? '↑ more  ' : '';
-      const below = top + windowSize < total ? '↓ more  ' : '';
+      if (total === 0) lines.push('  (nothing matches; Backspace to edit the filter)');
+      while (lines.length < Math.min(windowSize, options.length)) lines.push('');
+      const more = `${top > 0 ? '↑ more  ' : ''}${top + windowSize < total ? '↓ more  ' : ''}`;
+      const searchable = options.length > windowSize;
       lines.push(
-        `\x1b[2m${above}${below}(${cursor + 1}/${total})  ↑/↓ move · Enter select · Esc cancel\x1b[0m`,
+        `\x1b[2m${more}(${total === 0 ? 0 : cursor + 1}/${total})  ↑/↓ move · Enter select · Esc cancel${searchable ? ' · type to filter' : ''}\x1b[0m`,
       );
+      if (searchable) lines.push(`\x1b[2mfilter:\x1b[0m ${filter}`);
       out.write(lines.map((l) => `\x1b[2K${l}\n`).join(''));
       drawn = lines.length;
     };
@@ -154,37 +165,53 @@ export class StdioTerminal implements Terminal {
         out.write(`${label}: ${value === null ? '(cancelled)' : (options[value] ?? '')}\n`);
         resolve(value);
       };
-      const onKey = (_s: string | undefined, key: readline.Key | undefined): void => {
-        if (!key) return;
+      const onKey = (str: string | undefined, key: readline.Key | undefined): void => {
+        const total = view.length;
         const page = Math.max(1, windowSize - 1);
-        if (key.ctrl && (key.name === 'c' || key.name === 'd')) return finish(null);
-        switch (key.name) {
+        if (key?.ctrl && (key.name === 'c' || key.name === 'd')) return finish(null);
+        switch (key?.name) {
           case 'up':
-          case 'k':
-            cursor = (cursor - 1 + total) % total;
+            if (total > 0) cursor = (cursor - 1 + total) % total;
             break;
           case 'down':
-          case 'j':
-            cursor = (cursor + 1) % total;
+            if (total > 0) cursor = (cursor + 1) % total;
             break;
           case 'pageup':
             cursor = Math.max(0, cursor - page);
             break;
           case 'pagedown':
-            cursor = Math.min(total - 1, cursor + page);
+            cursor = Math.max(0, Math.min(total - 1, cursor + page));
             break;
           case 'home':
             cursor = 0;
             break;
           case 'end':
-            cursor = total - 1;
+            cursor = Math.max(0, total - 1);
             break;
           case 'return':
           case 'enter':
-            return finish(cursor);
+            if (total === 0) return;
+            return finish(view[cursor] ?? null);
           case 'escape':
             return finish(null);
+          case 'backspace':
+            if (filter === '') return;
+            filter = filter.slice(0, -1);
+            refilter();
+            break;
           default:
+            if (
+              str &&
+              str.length === 1 &&
+              str >= ' ' &&
+              str !== '\x7f' &&
+              !key?.ctrl &&
+              !key?.meta
+            ) {
+              filter += str;
+              refilter();
+              break;
+            }
             return;
         }
         draw();

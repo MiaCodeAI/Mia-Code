@@ -5,7 +5,7 @@ export interface PromptParts {
   evidence?: string | null;
 }
 
-/** System prompt for the current release: read-only chat grounded in an overview and file excerpts. */
+/** System prompt for plain chat (no tools): grounded in an overview and file excerpts. */
 export function buildSystemPrompt(parts: PromptParts | string | null): string {
   const { overview, evidence } =
     parts === null

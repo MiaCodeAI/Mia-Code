@@ -146,6 +146,30 @@ describe('arrow-key selection', () => {
     term.close();
   });
 
+  it('filters by typing and returns the original index', async () => {
+    const t = fakeTty();
+    const term = new StdioTerminal(t.input, t.output);
+    const p = term.select!('Pick', opts);
+    for (const ch of 'provider-2') t.input.push(ch);
+    t.input.push('\x1b[B');
+    t.input.push('\r');
+    // matches: provider-2, -20..-29; cursor moved one down => provider-20 (index 19)
+    expect(await p).toBe(19);
+    term.close();
+  });
+
+  it('ignores Enter when the filter matches nothing, and Backspace recovers', async () => {
+    const t = fakeTty();
+    const term = new StdioTerminal(t.input, t.output);
+    const p = term.select!('Pick', opts);
+    t.input.push('zzz');
+    t.input.push('\r');
+    t.input.push('\x7f\x7f\x7f');
+    t.input.push('\r');
+    expect(await p).toBe(0);
+    term.close();
+  });
+
   it('is not offered when input is not a terminal', () => {
     const term = new StdioTerminal(
       new PassThrough() as unknown as NodeJS.ReadStream,

@@ -266,7 +266,10 @@ export async function selectModel(
       'This provider did not offer a model list, so type the model id exactly as the provider documents it.',
     );
     chosen = await ask(ctx, 'Model id');
-  } else if (models.length <= 12) {
+  } else if (
+    models.length <= 12 ||
+    (ctx.terminal().interactive && ctx.terminal().select && ctx.stdoutIsTTY)
+  ) {
     const index = await choose(
       ctx,
       'Which model?',

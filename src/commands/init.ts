@@ -116,7 +116,7 @@ export async function initCommand(_args: string[], ctx: Context): Promise<number
   ctx.print(style.bold('Done.') + ' Open a project folder and run "mia" to start.');
   ctx.print(
     style.dim(
-      'This version is read-only chat: it sees file names and the start of your README, but cannot read, edit or run anything yet.',
+      'Mia Code asks before editing files or running commands (see "mia help run"); try: mia run "explain this project" or just "mia".',
     ),
   );
   return 0;
