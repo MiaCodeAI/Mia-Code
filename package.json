@@ -39,6 +39,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "eval:detect": "vitest run tests/detect-eval.test.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "prepublishOnly": "npm run check && npm run build"
   },
