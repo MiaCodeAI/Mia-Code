@@ -528,7 +528,14 @@ export async function detectProfile(
       if (/^\s*(import unittest|from unittest)/m.test((await tryRead(root, f, 100_000)) ?? ''))
         usesUnittest = true;
     if (hasPytest) commands.test = `${prefix}pytest`;
-    else if (usesUnittest) commands.test = 'python -m unittest discover';
+    else if (usesUnittest) {
+      // Plain "discover" only descends into packages; tests in a folder without __init__.py need -s.
+      const dir = testFiles.map((f) => f.split('/')[0]).find((d) => d === 'tests' || d === 'test');
+      const plainDir = dir !== undefined && !set.has(`${dir}/__init__.py`);
+      commands.test = plainDir
+        ? `python -m unittest discover -s ${dir}`
+        : 'python -m unittest discover';
+    }
     if (
       /\[tool\.ruff|^\s*ruff\b|\bruff\s*[=<>~]|"ruff"/im.test(pyText) ||
       set.has('ruff.toml') ||

@@ -127,6 +127,16 @@ export const DETECT_CASES: DetectCase[] = [
       'tests/test_app.py':
         'import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertTrue(True)\n',
     },
+    expect: { test: 'python -m unittest discover -s tests' },
+  },
+  {
+    name: 'unittest in a package',
+    language: 'python',
+    files: {
+      'app.py': py,
+      'tests/__init__.py': '',
+      'tests/test_app.py': 'import unittest\nclass T(unittest.TestCase):\n    pass\n',
+    },
     expect: { test: 'python -m unittest discover' },
   },
   {
