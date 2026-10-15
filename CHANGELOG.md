@@ -19,6 +19,7 @@ Phase 4: hardening and a more dependable workflow.
 
 ### Changed
 
+- Models that reject tool calling (for example some Groq models) no longer end the session with an error: Mia Code explains, switches to chat mode and answers the same question; `/model <id>` restores the previous mode. `mia init` and `mia provider test` now test tool calling with a harmless dummy tool, record a definitive result, and sessions start in chat mode for models recorded as unsupported. `mia run` explains and suggests choosing another model.
 - Arrow-key (scrolling) menus for provider and model choice on real terminals; numbered fallback for pipes.
 - Linux without `secret-tool`/keyring: opt-in private key file fallback (`0600`, not encrypted) so keys can be saved; `auth login --file-store`. Wrong-provider key hint on 401.
 - `npm run build` sets the executable bit on `dist/cli.js` (fixes `Permission denied` after `npm link`).

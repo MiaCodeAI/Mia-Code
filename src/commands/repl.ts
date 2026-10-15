@@ -1,6 +1,7 @@
 import type { MiaConfig } from '../config/schema.js';
 import type { Context } from '../context.js';
 import { UsageError, UserError } from '../errors.js';
+import { isToolsUnsupported } from '../providers/toolsupport.js';
 import { describeCapabilities, resolveCapabilities } from '../providers/capabilities.js';
 import { ProviderError } from '../providers/errors.js';
 import { readGitInfo, type GitInfo } from '../project/git.js';
@@ -77,6 +78,8 @@ interface ReplState {
   taskFlags: TaskFlags;
   project: ProjectContext | undefined;
   flags: ParsedFlags['values'];
+  /** Mode to restore when a model that rejected tools is replaced. */
+  modeBeforeFallback?: PermissionMode;
   /** undefined until first resolved. */
   sandbox: ActiveSandbox | null | undefined;
 }
@@ -188,6 +191,20 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
     project: undefined,
   };
 
+  if (
+    state.mode !== 'chat' &&
+    state.model &&
+    resolveCapabilities(config, runtime.name, state.model).tools === false
+  ) {
+    state.modeBeforeFallback = state.mode;
+    state.mode = 'chat';
+    ctx.print(
+      style.yellow(
+        `Tool calling is marked unsupported for ${state.model}, so this session starts in chat mode (answers only). Pick another model with /model <id> to read, edit and run things.`,
+      ),
+    );
+  }
+
   const branch = git
     ? `${git.branch ?? '?'}${git.changedPaths ? ` (${git.changedPaths} changed)` : ' (clean)'}`
     : 'no git';
@@ -225,8 +242,10 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
   });
 
   try {
+    let retryText: string | undefined;
     for (;;) {
-      const line = await terminal.readLine(style.cyan('mia> '));
+      const line = retryText ?? (await terminal.readLine(style.cyan('mia> ')));
+      retryText = undefined;
       if (line === null) break;
       let text = line.trim();
       if (text === '') continue;
@@ -357,17 +376,21 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
       } catch (error) {
         ctx.print();
         if (error instanceof ProviderError) {
-          ctx.print(style.red(error.describe()));
-          if (
-            error.code === 'bad_request' &&
-            state.mode !== 'chat' &&
-            /tool|function/i.test(error.message)
-          )
+          if (isToolsUnsupported(error) && state.mode !== 'chat') {
             ctx.print(
               style.yellow(
-                'This model or endpoint may not support tool calling. Try /mode chat, or another model.',
+                `${state.model} does not support tool calling (${error.provider} rejected it), so Mia Code cannot read, edit or run things with it. Switching to chat mode (answers only) and answering your question again.`,
               ),
             );
+            ctx.print(
+              style.dim(
+                '  Use /model <id> to pick a model that supports tools; "mia provider test" checks the current one.',
+              ),
+            );
+            state.modeBeforeFallback = state.mode;
+            state.mode = 'chat';
+            retryText = text;
+          } else ctx.print(style.red(error.describe()));
         } else ctx.print(style.red(`Unexpected error: ${(error as Error).message}`));
       } finally {
         controller = undefined;
@@ -591,6 +614,15 @@ async function handleSlash(input: string, state: ReplState, ctx: Context): Promi
         ctx.print(
           `Model for this session: ${argument} (use "mia model use" to make it permanent).`,
         );
+        if (state.modeBeforeFallback && state.mode === 'chat') {
+          state.mode = state.modeBeforeFallback;
+          state.modeBeforeFallback = undefined;
+          ctx.print(
+            style.dim(
+              `Back to ${describeMode(state.mode)}. If this model rejects tools too, Mia Code returns to chat mode.`,
+            ),
+          );
+        }
       }
       return false;
     case '/provider':

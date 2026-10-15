@@ -10,7 +10,13 @@ import { confirm } from '../ui/prompts.js';
 import { suggest } from '../util/suggest.js';
 import { flag, parseFlags, str } from './flags.js';
 import { getProviderConfig, pickProviderName } from './runtime.js';
-import { promptProviderChoice, saveProvider, testProvider, type TestStep } from './setup.js';
+import {
+  promptProviderChoice,
+  recordToolSupport,
+  saveProvider,
+  testProvider,
+  type TestStep,
+} from './setup.js';
 
 const SUBCOMMANDS = ['list', 'add', 'test', 'use', 'remove'];
 
@@ -181,6 +187,8 @@ async function test(args: string[], ctx: Context): Promise<number> {
   );
   const outcome = await testProvider(ctx, cfg, name);
   printSteps(ctx, outcome.steps);
+  const model = cfg.providers[name]?.model;
+  if (outcome.ok && model) await recordToolSupport(ctx, name, model, outcome.toolSupport);
   return outcome.ok ? 0 : 1;
 }
 

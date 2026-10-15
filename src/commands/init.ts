@@ -8,6 +8,7 @@ import { confirm } from '../ui/prompts.js';
 import { getProviderConfig, openProvider } from './runtime.js';
 import { printSteps } from './provider.js';
 import {
+  recordToolSupport,
   loginProvider,
   promptProviderChoice,
   readApiKey,
@@ -102,13 +103,28 @@ export async function initCommand(_args: string[], ctx: Context): Promise<number
       true,
     )
   ) {
-    const outcome = await testProvider(ctx, latest, choice.name);
+    let outcome = await testProvider(ctx, latest, choice.name);
     printSteps(ctx, outcome.steps);
     if (!outcome.ok) {
       ctx.print(
         'Setup is saved, but the test failed. Fix the problem above, then run "mia provider test".',
       );
       return 1;
+    }
+    await recordToolSupport(ctx, choice.name, model, outcome.toolSupport);
+    for (
+      let attempt = 0;
+      attempt < 3 &&
+      outcome.toolSupport === 'unsupported' &&
+      ctx.terminal().interactive &&
+      (await confirm(ctx, 'This model cannot use tools. Pick a different model now?', true));
+      attempt++
+    ) {
+      const next = await selectModel(ctx, choice.name, models);
+      outcome = await testProvider(ctx, await ctx.config.load(), choice.name);
+      printSteps(ctx, outcome.steps);
+      if (!outcome.ok) return 1;
+      await recordToolSupport(ctx, choice.name, next, outcome.toolSupport);
     }
   }
 
