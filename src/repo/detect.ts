@@ -469,30 +469,142 @@ export async function detectProfile(
   }
   const makefile = set.has('Makefile') ? await tryRead(root, 'Makefile') : null;
   if (makefile) {
-    for (const target of ['test', 'build', 'lint'] as const) {
+    for (const target of ['test', 'lint', 'build'] as const) {
       if (!commands[target] && new RegExp(`^${target}\\s*:`, 'm').test(makefile))
         commands[target] = `make ${target}`;
     }
+    if (!commands.test && /^check\s*:/m.test(makefile)) commands.test = 'make check';
   }
+
+  // Node without scripts: bun runs scripts with "bun run"; TypeScript projects can be type-checked directly.
   if (
-    profile.ecosystems.includes('Python') &&
-    !commands.test &&
-    profile.testFrameworks.includes('pytest')
-  )
-    commands.test = 'pytest';
+    profile.packageManagers.includes('bun') &&
+    !profile.packageManagers.some((m) => m === 'pnpm' || m === 'yarn')
+  ) {
+    for (const [key, names] of [
+      ['test', ['test']],
+      ['build', ['build']],
+      ['lint', ['lint']],
+      ['typecheck', ['typecheck', 'type-check', 'tsc']],
+    ] as const) {
+      commands[key] = undefined;
+      for (const n of names)
+        if (
+          rootScripts[n] !== undefined &&
+          !(n === 'test' && /no test specified/.test(rootScripts[n])) &&
+          !commands[key]
+        )
+          commands[key] = `bun run ${n}`;
+      if (!commands[key]) delete commands[key];
+    }
+  }
+  if (!commands.typecheck && set.has('tsconfig.json') && packageJsons.includes('package.json')) {
+    const text = await tryRead(root, 'package.json');
+    if (text && /"typescript"\s*:/.test(text)) commands.typecheck = 'npx tsc --noEmit';
+  }
+  if (set.has('deno.json') || set.has('deno.jsonc')) {
+    addUnique(profile.ecosystems, 'Deno');
+    commands.test ??= 'deno test';
+    commands.lint ??= 'deno lint';
+  }
+
+  // Python
+  if (profile.ecosystems.includes('Python') || paths.some((p) => /\.py$/.test(p))) {
+    const pyFiles = [
+      'pyproject.toml',
+      'requirements.txt',
+      'requirements-dev.txt',
+      'setup.cfg',
+      'Pipfile',
+      'tox.ini',
+    ];
+    let pyText = '';
+    for (const f of pyFiles) if (set.has(f)) pyText += `\n${(await tryRead(root, f)) ?? ''}`;
+    const hasPytest = /\bpytest\b/i.test(pyText) || set.has('pytest.ini') || set.has('conftest.py');
+    const prefix = set.has('poetry.lock') ? 'poetry run ' : set.has('uv.lock') ? 'uv run ' : '';
+    const testFiles = paths.filter((p) => /(^|\/)test_[^/]+\.py$|_test\.py$/.test(p)).slice(0, 5);
+    let usesUnittest = false;
+    for (const f of testFiles)
+      if (/^\s*(import unittest|from unittest)/m.test((await tryRead(root, f, 100_000)) ?? ''))
+        usesUnittest = true;
+    if (hasPytest) commands.test = `${prefix}pytest`;
+    else if (usesUnittest) {
+      // Plain "discover" only descends into packages; tests in a folder without __init__.py need -s.
+      const dir = testFiles.map((f) => f.split('/')[0]).find((d) => d === 'tests' || d === 'test');
+      const plainDir = dir !== undefined && !set.has(`${dir}/__init__.py`);
+      commands.test = plainDir
+        ? `python -m unittest discover -s ${dir}`
+        : 'python -m unittest discover';
+    }
+    if (
+      /\[tool\.ruff|^\s*ruff\b|\bruff\s*[=<>~]|"ruff"/im.test(pyText) ||
+      set.has('ruff.toml') ||
+      set.has('.ruff.toml')
+    )
+      commands.lint ??= `${prefix}ruff check .`;
+    else if (set.has('.flake8') || /\[flake8\]/.test(pyText)) commands.lint ??= `${prefix}flake8`;
+    if (/\[tool\.mypy\]|\[mypy\]/.test(pyText) || set.has('mypy.ini'))
+      commands.typecheck ??= `${prefix}mypy .`;
+    else if (set.has('pyrightconfig.json') || /\[tool\.pyright\]/.test(pyText))
+      commands.typecheck ??= `${prefix}pyright`;
+  }
+
+  // Go, Rust
   if (set.has('go.mod')) {
     commands.test ??= 'go test ./...';
     commands.build ??= 'go build ./...';
+    commands.lint ??= 'go vet ./...';
   }
   if (set.has('Cargo.toml')) {
     commands.test ??= 'cargo test';
     commands.build ??= 'cargo build';
+    commands.lint ??= 'cargo clippy';
+    commands.typecheck ??= 'cargo check';
   }
-  if (set.has('pom.xml')) commands.test ??= 'mvn test';
-  if (set.has('gradlew') || set.has('build.gradle') || set.has('build.gradle.kts'))
-    commands.test ??= './gradlew test';
-  if (set.has('composer.json') && profile.testFrameworks.includes('PHPUnit'))
-    commands.test ??= 'vendor/bin/phpunit';
+  // JVM
+  if (set.has('pom.xml')) commands.test ??= set.has('mvnw') ? './mvnw test' : 'mvn test';
+  if (set.has('build.gradle') || set.has('build.gradle.kts'))
+    commands.test ??= set.has('gradlew') ? './gradlew test' : 'gradle test';
+  // .NET
+  if (profile.ecosystems.includes('.NET')) {
+    commands.test ??= 'dotnet test';
+    commands.build ??= 'dotnet build';
+  }
+  // Ruby
+  if (set.has('Gemfile')) {
+    const gem = (await tryRead(root, 'Gemfile')) ?? '';
+    if (/\brspec\b/.test(gem)) commands.test ??= 'bundle exec rspec';
+    else if (
+      set.has('Rakefile') &&
+      /\b(minitest|test-unit)\b|rails/.test(gem) &&
+      /TestTask|task\s*:?test/.test((await tryRead(root, 'Rakefile')) ?? '')
+    )
+      commands.test ??= 'bundle exec rake test';
+  }
+  // PHP
+  if (set.has('composer.json')) {
+    const text = (await tryRead(root, 'composer.json')) ?? '';
+    let hasTestScript = false;
+    try {
+      const j: unknown = JSON.parse(text);
+      hasTestScript = isRecord(j) && isRecord(j['scripts']) && 'test' in j['scripts'];
+    } catch {
+      /* ignore */
+    }
+    if (hasTestScript) commands.test ??= 'composer test';
+    else if (profile.testFrameworks.includes('PHPUnit')) commands.test ??= 'vendor/bin/phpunit';
+  }
+  // Swift, Dart, Elixir
+  if (set.has('Package.swift')) {
+    commands.test ??= 'swift test';
+    commands.build ??= 'swift build';
+  }
+  if (set.has('pubspec.yaml'))
+    commands.test ??= profile.frameworks.includes('Flutter') ? 'flutter test' : 'dart test';
+  if (set.has('mix.exs')) {
+    addUnique(profile.ecosystems, 'Elixir');
+    commands.test ??= 'mix test';
+  }
 
   // Databases from containers and migration folders
   for (const p of profile.containers.filter((c) => /compose/.test(c))) {

@@ -1,10 +1,13 @@
 import { parseArgs } from 'node:util';
 import { UsageError } from '../errors.js';
 
-export type FlagSpec = Record<string, { type: 'boolean' | 'string'; short?: string }>;
+export type FlagSpec = Record<
+  string,
+  { type: 'boolean' | 'string'; short?: string; multiple?: boolean }
+>;
 
 export interface ParsedFlags {
-  values: Record<string, string | boolean | undefined>;
+  values: Record<string, string | boolean | Array<string | boolean> | undefined>;
   positionals: string[];
 }
 
@@ -38,4 +41,10 @@ export function str(values: ParsedFlags['values'], name: string): string | undef
 
 export function flag(values: ParsedFlags['values'], name: string): boolean {
   return values[name] === true;
+}
+
+export function strs(values: ParsedFlags['values'], name: string): string[] {
+  const value = values[name];
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string');
+  return typeof value === 'string' ? [value] : [];
 }

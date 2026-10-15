@@ -1,6 +1,6 @@
 {
   "name": "mia-code",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Open-source, cross-platform, bring-your-own-key AI coding assistant for the terminal (early development).",
   "license": "Apache-2.0",
   "type": "module",
@@ -39,8 +39,13 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "eval:detect": "vitest run tests/detect-eval.test.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "prepublishOnly": "npm run check && npm run build"
+    "prepublishOnly": "npm run check && npm run build",
+    "bench:validate": "vitest run tests/bench.test.ts",
+    "bench": "npm run build && tsc -p tsconfig.bench.json && node dist-bench/bench/run.js",
+    "bench:oracle": "tsc -p tsconfig.bench.json && node dist-bench/bench/run.js --oracle",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

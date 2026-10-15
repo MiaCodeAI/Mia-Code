@@ -1,5 +1,9 @@
-import { promises as fs } from 'node:fs';
 import type { Runner } from '../platform/exec.js';
+import type { Skill } from '../instructions/skills.js';
+import type { ShellTracker } from './shelltrack.js';
+import { useSkill, type PlanState } from './plan.js';
+import type { ActiveSandbox } from '../sandbox/index.js';
+import { UnsafePathError, readFileSafe, writeFileSafe } from '../platform/safefs.js';
 import { safeGitArgs, safeGitEnv } from '../project/git.js';
 import type { RepoIndex } from '../repo/index.js';
 import { AccessError, readTextFile } from '../repo/read.js';
@@ -19,11 +23,23 @@ export interface ToolEnv {
   platform: NodeJS.Platform;
   checkpoints: Checkpoints;
   signal?: AbortSignal;
+  /** When set, shell commands run inside this OS sandbox. */
+  sandbox?: ActiveSandbox | null;
+  /** When set, files changed by shell commands are detected and recorded. */
+  tracker?: ShellTracker;
+  /** Plan state for the current task (plan mode). */
+  plan?: PlanState;
+  /** Skills the model may load with use_skill. */
+  skills?: readonly Skill[];
+  /** Test seam: runs between planning an edit and writing it. */
+  beforeCommit?: () => Promise<void>;
 }
 
 export interface ToolResult {
   content: string;
   isError: boolean;
+  /** Set by shell tools so callers (the verify loop) need not parse text. */
+  meta?: { exitCode: number | null; timedOut: boolean };
 }
 
 export interface Tool {
@@ -374,11 +390,20 @@ async function planEdit(
 }
 
 async function commit(plan: Plan, env: ToolEnv): Promise<void> {
-  await fs.mkdir(
-    plan.abs.slice(0, Math.max(plan.abs.lastIndexOf('/'), plan.abs.lastIndexOf('\\'))),
-    { recursive: true },
-  );
-  await fs.writeFile(plan.abs, plan.after, 'utf8');
+  // Revalidate at the moment of writing: the file must still hold what the edit was planned against,
+  // and the write itself never follows symbolic links (see platform/safefs.ts).
+  try {
+    await env.beforeCommit?.();
+    const now = await readFileSafe(env.root, plan.rel);
+    if (now !== plan.before)
+      throw new PathPolicyError(
+        'The file changed since it was read. Read it again and redo the edit.',
+      );
+    await writeFileSafe(env.root, plan.rel, plan.after, { mustExist: plan.before !== null });
+  } catch (error) {
+    if (error instanceof UnsafePathError) throw new PathPolicyError(error.message);
+    throw error;
+  }
   env.checkpoints.record(plan.rel, plan.before, plan.after);
 }
 
@@ -403,7 +428,11 @@ const editFile: Tool = {
   async execute(args, env) {
     const plan = await planEdit(args, env);
     if ('error' in plan) return fail(plan.error);
-    await commit(plan, env);
+    try {
+      await commit(plan, env);
+    } catch (error) {
+      return fail(accessMessage(error));
+    }
     const s = diffStats(plan.before ?? '', plan.after);
     return ok(`Edited ${plan.rel} (+${s.added} -${s.removed}).`);
   },
@@ -456,7 +485,11 @@ const writeFile: Tool = {
     const plan = await planWrite(args, env);
     if ('error' in plan) return fail(plan.error);
     if (plan.before === plan.after) return ok(`${plan.rel} already has this content.`);
-    await commit(plan, env);
+    try {
+      await commit(plan, env);
+    } catch (error) {
+      return fail(accessMessage(error));
+    }
     return ok(
       `${plan.before === null ? 'Created' : 'Overwrote'} ${plan.rel} (${plan.after.replace(/\n$/, '').split('\n').length} lines).`,
     );
@@ -489,7 +522,11 @@ export async function runShell(
     env.platform === 'win32'
       ? ['cmd.exe', ['/d', '/s', '/c', command]]
       : ['/bin/sh', ['-c', command]];
-  const r = await env.run(shell as string, shellArgs as string[], {
+  const wrapped = env.sandbox
+    ? env.sandbox.wrap([shell as string, ...(shellArgs as string[])])
+    : { command: shell as string, args: shellArgs as string[] };
+  const before = env.tracker ? await env.tracker.snapshot() : null;
+  const r = await env.run(wrapped.command, wrapped.args, {
     cwd: env.root,
     env: scrubbedEnv(env.env),
     timeoutMs,
@@ -497,13 +534,29 @@ export async function runShell(
     ...(env.signal ? { signal: env.signal } : {}),
   });
   const parts: string[] = [];
+  if (before && env.tracker) {
+    const d = await env.tracker.finish(before, env.checkpoints);
+    const names = (label: string, xs: string[]): void => {
+      if (xs.length > 0)
+        parts.push(
+          `[files ${label} by this command: ${xs.slice(0, 15).join(', ')}${xs.length > 15 ? ', …' : ''}]`,
+        );
+    };
+    names('added', d.added);
+    names('modified', d.modified);
+    names('deleted', d.deleted);
+  }
   if (r.error) return fail(`Could not start the shell: ${r.error.message}`);
   if (r.timedOut) parts.push(`[timed out after ${Math.round(timeoutMs / 1000)}s and was stopped]`);
   else parts.push(`[exit code ${r.exitCode ?? 'unknown (killed)'}]`);
   if (r.stdout.trim() !== '') parts.push(`stdout:\n${r.stdout.trimEnd()}`);
   if (r.stderr.trim() !== '') parts.push(`stderr:\n${r.stderr.trimEnd()}`);
   if (r.truncated) parts.push('[output was truncated]');
-  return { content: limitText(redact(parts.join('\n'))), isError: r.timedOut || r.exitCode !== 0 };
+  return {
+    content: limitText(redact(parts.join('\n'))),
+    isError: r.timedOut || r.exitCode !== 0,
+    meta: { exitCode: r.exitCode, timedOut: r.timedOut },
+  };
 }
 
 const runCommand: Tool = {
@@ -611,6 +664,7 @@ export const ALL_TOOLS: readonly Tool[] = [
   runCommand,
   runTests,
   gitCommit,
+  useSkill,
 ];
 
 export function toolByName(name: string): Tool | undefined {

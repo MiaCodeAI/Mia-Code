@@ -1,5 +1,4 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { removeFileSafe, readFileSafe, writeFileSafe } from '../platform/safefs.js';
 import { unifiedDiff } from './diff.js';
 
 interface Change {
@@ -26,7 +25,53 @@ export class Checkpoints {
     this.turns.push({ label, changes: new Map() });
   }
 
-  record(rel: string, before: string | null, after: string | null): void {
+  /** Files changed by shell commands whose previous content is unknown, so they cannot be restored. */
+  readonly unrestorable = new Map<string, 'modified' | 'deleted'>();
+  /** Files whose change came from a shell command rather than an edit tool. */
+  readonly viaShell = new Set<string>();
+
+  markUnrestorable(rel: string, kind: 'modified' | 'deleted'): void {
+    this.unrestorable.set(rel, kind);
+  }
+
+  /** Every file changed this session, by edit tools or shell commands. */
+  get allChangedFiles(): string[] {
+    return [...new Set([...this.originals.keys(), ...this.unrestorable.keys()])].sort();
+  }
+
+  /**
+   * Restores one file to its content before the agent first touched it. Skipped (conflict) when the
+   * file no longer holds what the agent last wrote.
+   */
+  async undoFile(rel: string): Promise<'restored' | 'conflict' | 'unknown'> {
+    if (!this.originals.has(rel)) return 'unknown';
+    let lastAfter: string | null | undefined;
+    for (const t of this.turns) {
+      const c = t.changes.get(rel);
+      if (c) lastAfter = c.after;
+    }
+    const now = await this.current(rel);
+    if (lastAfter === undefined || now !== lastAfter) return 'conflict';
+    const orig = this.originals.get(rel) ?? null;
+    try {
+      if (orig === null) await removeFileSafe(this.root, rel);
+      else await writeFileSafe(this.root, rel, orig, { mustExist: now !== null });
+    } catch {
+      return 'conflict';
+    }
+    for (const t of this.turns) t.changes.delete(rel);
+    this.originals.delete(rel);
+    this.viaShell.delete(rel);
+    return 'restored';
+  }
+
+  record(
+    rel: string,
+    before: string | null,
+    after: string | null,
+    source: 'tool' | 'shell' = 'tool',
+  ): void {
+    if (source === 'shell') this.viaShell.add(rel);
     if (this.turns.length === 0) this.begin('session');
     const turn = this.turns.at(-1)!;
     const existing = turn.changes.get(rel);
@@ -43,19 +88,30 @@ export class Checkpoints {
     return this.turns.filter((t) => t.changes.size > 0).length;
   }
 
-  private async current(rel: string): Promise<string | null> {
+  /** Current content, null if the file is gone, or undefined if it cannot be read safely (symlink, etc.). */
+  private async current(rel: string): Promise<string | null | undefined> {
     try {
-      return await fs.readFile(path.join(this.root, ...rel.split('/')), 'utf8');
+      return await readFileSafe(this.root, rel);
     } catch {
-      return null;
+      return undefined;
     }
+  }
+
+  /** Diff of one file, original vs now ('' when unchanged or unreadable). */
+  async diffFile(rel: string): Promise<string> {
+    if (!this.originals.has(rel)) return '';
+    return unifiedDiff(rel, this.originals.get(rel) ?? null, (await this.current(rel)) ?? null);
   }
 
   /** Combined diff of everything changed this session, original vs now. */
   async diffAll(): Promise<string> {
     const parts: string[] = [];
     for (const rel of this.changedFiles) {
-      const diff = unifiedDiff(rel, this.originals.get(rel) ?? null, await this.current(rel));
+      const diff = unifiedDiff(
+        rel,
+        this.originals.get(rel) ?? null,
+        (await this.current(rel)) ?? null,
+      );
       if (diff) parts.push(diff);
     }
     return parts.join('\n');
@@ -77,10 +133,14 @@ export class Checkpoints {
         result.conflicts.push(rel);
         continue;
       }
-      const abs = path.join(this.root, ...rel.split('/'));
-      if (change.before === null) await fs.rm(abs, { force: true });
-      else await fs.writeFile(abs, change.before, 'utf8');
-      result.restored.push(rel);
+      try {
+        // Re-validated at the moment of the write; symlinks are never followed.
+        if (change.before === null) await removeFileSafe(this.root, rel);
+        else await writeFileSafe(this.root, rel, change.before, { mustExist: now !== null });
+        result.restored.push(rel);
+      } catch {
+        result.conflicts.push(rel);
+      }
     }
     // Conflicting files stay in the turn so they are not silently forgotten.
     for (const rel of result.restored) {

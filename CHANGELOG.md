@@ -2,6 +2,31 @@
 
 All notable changes are documented here. Format based on Keep a Changelog; versioning is semantic.
 
+## [0.4.0] - Unreleased
+
+Phase 4: hardening and a more dependable workflow.
+
+### Added
+
+- OS sandbox for commands: bubblewrap (tested on Linux), Seatbelt and Docker (unverified). Read-only file system, writable project only, `$HOME` hidden, secret files masked, network off by default. Flags `--sandbox`, `--network`, `--sandbox-image`, `--allow-write`, `--unsafe-no-sandbox`. `auto` mode requires a sandbox.
+- Plan mode (`--plan`, `/plan`): propose, approve/revise/cancel, step progress.
+- `MIA.md`, `AGENTS.md`, global `MIA.md` (with precedence, fenced as guidance), `mia-checks` blocks, and skills (`.mia/skills/<name>/SKILL.md` plus built-ins; `/skill`, `/skills`, `use_skill`).
+- Verify-and-repair loop: `--check`, `--no-verify`, `--repair <n>`, final summary of changed files, checks run and remaining failures.
+- Review: per-file approval, `--review`, `/revert <path>`, heuristic final review (unrelated edits, missing or weakened tests, leftovers), shell change tracking.
+- Detection evaluation set (34 cases) and detection fixes for Python, Go, Rust, JVM, .NET, Ruby, PHP, Swift, Dart, Elixir, Deno and bun.
+- Benchmark (`npm run bench`, `bench:oracle`, `bench:validate`).
+- Opt-in live checks (`MIA_LIVE=1 npm run test:live`), a manual workflow, and `docs/verification.md`.
+
+### Changed
+
+- File writes, reads and undo are symlink-safe and revalidated at the mutation point.
+- The repo index compares exact nanosecond timestamps, inode and size, and re-reads recently modified files, so fast same-size edits are detected.
+- README and security guide brought up to date.
+
+### Known limitations
+
+See README "Known limitations" and `docs/verification.md`.
+
 ## [0.3.0] - Unreleased
 
 Phase 3: Controlled coding agent, plus multi-key rotation and the MIA CODE banner.

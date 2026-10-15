@@ -45,6 +45,43 @@ export interface Keyword {
   weight: number;
 }
 
+/** Words too common to say anything about a file's name. Much smaller than STOPWORDS: "review" or "check" can be file names. */
+const PATH_STOPWORDS = new Set(
+  "the and for are but not you all can had her was one our out has have been were what when will your with that this from they them then than into just like also more some such only over very about after before should would could there these those which while where does did how why who its it's any each other still even much many make made get got use used using".split(
+    /\s+/,
+  ),
+);
+
+function stem(word: string): string {
+  const w = word.toLowerCase();
+  for (const suffix of ['ations', 'ation', 'ions', 'ion', 'ing', 'ers', 'er', 'ed', 'es', 's']) {
+    if (w.endsWith(suffix) && w.length - suffix.length >= 4) return w.slice(0, -suffix.length);
+  }
+  return w;
+}
+
+/** Words of the question that could name a file or folder (stemmed, deduplicated). */
+export function pathWords(question: string): string[] {
+  const out = new Set<string>();
+  for (const m of question.matchAll(/[A-Za-z][A-Za-z0-9]{3,}/g)) {
+    const w = m[0].toLowerCase();
+    if (!PATH_STOPWORDS.has(w)) out.add(stem(w));
+  }
+  return [...out].slice(0, 30);
+}
+
+function pathTokens(p: string): { file: string[]; dirs: string[] } {
+  const parts = p.split('/');
+  const split = (x: string): string[] =>
+    x
+      .replace(/\.[^.]+$/, '')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(/[\s._-]+/)
+      .filter((t) => t.length >= 3)
+      .map(stem);
+  return { file: split(parts.at(-1) ?? ''), dirs: parts.slice(0, -1).flatMap(split) };
+}
+
 export function extractKeywords(question: string): Keyword[] {
   const found = new Map<string, number>();
   const add = (text: string, weight: number): void => {
@@ -169,6 +206,24 @@ export async function gatherEvidence(
         const c = candidate(p);
         c.score += 2;
         note(c, 'folder name matches');
+      }
+    }
+  }
+
+  // Words in the question that match words in a file or folder name (stemmed: "detection" ~ detect.ts).
+  const words = pathWords(question);
+  if (words.length > 0) {
+    for (const p of allPaths) {
+      const t = pathTokens(p);
+      let score = 0;
+      for (const w of words) {
+        if (t.file.includes(w)) score += 6;
+        else if (t.dirs.includes(w)) score += 2.5;
+      }
+      if (score > 0) {
+        const c = candidate(p);
+        c.score += Math.min(score, 14);
+        note(c, 'path name matches the question');
       }
     }
   }

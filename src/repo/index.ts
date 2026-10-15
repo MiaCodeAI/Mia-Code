@@ -2,7 +2,7 @@ import type { Runner } from '../platform/exec.js';
 import { mapLimit } from '../util/concurrency.js';
 import { analyzeFile } from './analysis.js';
 import { detectProfile, type ProjectProfile } from './detect.js';
-import { buildInventory } from './inventory.js';
+import { buildInventory, fileSignature, RACY_WINDOW_MS } from './inventory.js';
 import { isCodeFile } from './languages.js';
 import { readTextFile } from './read.js';
 import type { FileAnalysis, Inventory, SymbolEntry } from './types.js';
@@ -28,6 +28,8 @@ export class RepoIndex {
   lastRefreshReads = 0;
   analysisTruncated = false;
   private readonly signatures = new Map<string, string>();
+  /** Files whose timestamps were too close to the read time to trust; re-read next time. */
+  private readonly racy = new Set<string>();
 
   constructor(
     readonly directory: string,
@@ -37,6 +39,7 @@ export class RepoIndex {
   ) {}
 
   async refresh(): Promise<void> {
+    const startedAt = Date.now();
     const inventory = await buildInventory(this.directory, this.run, this.env, {
       ...(this.options.maxFiles !== undefined ? { maxFiles: this.options.maxFiles } : {}),
     });
@@ -56,13 +59,17 @@ export class RepoIndex {
       }
     }
 
-    const stale = wanted.filter((f) => this.signatures.get(f.path) !== `${f.size}:${f.mtimeMs}`);
+    const stale = wanted.filter(
+      (f) => this.racy.has(f.path) || this.signatures.get(f.path) !== fileSignature(f),
+    );
+    this.racy.clear();
     this.lastRefreshReads = 0;
     await mapLimit(stale, 16, async (file) => {
       try {
         const { text } = await readTextFile(inventory.root, file.path, { maxBytes });
         this.analyses.set(file.path, analyzeFile(file.path, text));
-        this.signatures.set(file.path, `${file.size}:${file.mtimeMs}`);
+        this.signatures.set(file.path, fileSignature(file));
+        if (startedAt - file.mtimeMs < RACY_WINDOW_MS) this.racy.add(file.path);
         this.lastRefreshReads++;
       } catch {
         this.analyses.delete(file.path);

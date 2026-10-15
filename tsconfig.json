@@ -14,5 +14,12 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "vitest.config.ts", "eslint.config.js"]
+  "include": [
+    "src",
+    "tests",
+    "bench",
+    "vitest.config.ts",
+    "vitest.live.config.ts",
+    "eslint.config.js"
+  ]
 }

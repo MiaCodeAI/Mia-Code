@@ -12,3 +12,6 @@ coverage/
 *.pem
 *.key
 .mia/
+dist-bench/
+bench/results/*
+!bench/results/.gitkeep

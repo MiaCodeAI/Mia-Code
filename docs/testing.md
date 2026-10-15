@@ -23,12 +23,21 @@ terminal and subprocess runner are injected (`tests/helpers/fakes.ts`).
 | Session           | history window, failure/cancel handling, usage totals, cost refusal without data                                                           |
 | CLI end-to-end    | init wizard, login/validation/storage, no key in any output, ask/REPL/doctor/config                                                        |
 
+| Agent | symlink-swap races, sandbox arguments and (when bubblewrap works) real isolation, plan mode, instructions/skills, verify-and-repair, review, shell tracking |
+| Detection | 34 table-driven fixtures across ecosystems (`tests/detect-eval.test.ts`, cases in `bench/detect-cases.ts`) |
+
+## Benchmark
+
+`bench/` holds small real tasks (in a copy of Mia Code's own source and in Node and Python fixtures). Each task has a check command and expected files.
+`npm run bench:oracle` applies the known-good fix to prove every task is solvable and every check discriminates; `npm run bench:validate` runs that validation in the test suite.
+`npm run bench` runs the agent against a real provider and records, per task: whether the right files were picked (retrieval recall), whether the task completed, whether checks pass,
+and whether unrelated files changed. Results go to `bench/results/` (git-ignored). Offline retrieval metrics need no key. No comparison with other agents is claimed.
+
 ## Not covered yet
 
-Live providers, the real macOS Keychain and Windows DPAPI, and real terminals (hidden input, Ctrl-C) are not exercised by automated tests. CI runs the suite on
-Ubuntu, Windows and macOS (Node 20 and 22), which verifies path handling and platform-neutral code but not those integrations. Manual
-verification notes from contributors are welcome.
+Live providers, the real macOS Keychain and Windows DPAPI, the Seatbelt and Docker sandboxes, and real terminals (hidden input, Ctrl-C) are not exercised by automated tests. CI runs the suite on
+Ubuntu, Windows and macOS (Node 20 and 22), which verifies path handling and platform-neutral code but not those integrations.
 
 ## Optional live checks
 
-There is no live-provider test suite yet. When one is added it must be opt-in, require the contributor's own key, and never run in CI by default.
+`MIA_LIVE=1 npm run test:live` runs opt-in credential-store and provider checks with your own keys; it never runs in the default suite or CI. See [verification.md](verification.md).
