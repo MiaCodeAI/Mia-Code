@@ -3,6 +3,8 @@ export const SERVICE_NAME = 'mia-code';
 export interface Availability {
   available: boolean;
   reason?: string;
+  /** When unavailable: an alternative the user may opt into (for example a private key file). */
+  offer?: { description: string; enable(): Promise<void> };
 }
 
 /** Stores API keys outside of config files. `account` is the provider name. */

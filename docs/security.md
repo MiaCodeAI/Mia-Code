@@ -38,6 +38,7 @@
 - Excluding files by name cannot catch secrets stored in ordinary-looking files. Excerpts sent with a question are redacted, and files containing private keys are skipped, but a secret embedded in ordinary source can still be sent; use `--show-context` to review, or `--no-evidence` to send none.
 - The audit never prints secret values (token previews show a prefix and length only) and never writes inside the audited project.
 - **Windows** stores keys with DPAPI scoped to your Windows user (not Credential Manager, which cannot be read back from a command line). Anyone who can run code as you can read them.
+- **Linux without a keyring:** with your consent, keys go in `credentials/` in the config directory (folder `0700`, files `0600`), **unencrypted**. Anyone who can read your files as you, or as root, can read them. Prefer a real keyring where you can.
 - Environment variables are visible to other processes of the same user on many systems.
 - Permission prompts are not a security boundary; the OS sandbox is, where available and verified.
 - The macOS and Windows credential backends, the Seatbelt and Docker sandboxes and the live provider endpoints have not been verified on real systems yet ([docs/verification.md](verification.md)).

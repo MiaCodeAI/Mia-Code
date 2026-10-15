@@ -85,7 +85,7 @@ Checks Node.js, the config file, secure key storage, git, terminal capabilities 
 configured provider's key. --online also contacts each provider with a model-list request.
 Exit code is 1 if a blocking problem is found.`,
 
-  auth: `mia auth login [provider] [--label <name>] [--stdin] [--no-validate]
+  auth: `mia auth login [provider] [--label <name>] [--stdin] [--no-validate] [--file-store]
 mia auth list
 mia auth remove <provider> [--label <name> | --all] [--yes]
 
