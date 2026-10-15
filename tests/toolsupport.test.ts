@@ -87,7 +87,7 @@ describe('session fallback', () => {
       () => sseResponse(chat),
     ]);
     h = await makeHarness({
-      input: ['scan project', '/mode', '/quit'],
+      input: ['tell me what this project does', '/mode', '/quit'],
       fetchImpl: f.fetch,
       env: { OPENAI_API_KEY: KEY },
     });

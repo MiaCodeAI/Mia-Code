@@ -23,6 +23,9 @@ import { SANDBOX_FLAGS, SANDBOX_USAGE, resolveSandbox } from './sandbox.js';
 import { isToolsUnsupported } from '../providers/toolsupport.js';
 import { openProvider, pickProviderName } from './runtime.js';
 
+/** Thrown when the model cannot use tools, so callers can fall back to a plain answer. */
+export class ToolsUnsupportedError extends UserError {}
+
 /** `mia run <task>`: one agent task (reads, edits, runs tests) with the chosen permission mode. */
 export async function runCommand(args: string[], ctx: Context): Promise<number> {
   const { values, positionals } = parseFlags(args, {
@@ -133,7 +136,7 @@ export async function runCommand(args: string[], ctx: Context): Promise<number> 
   } catch (error) {
     ctx.print();
     if (isToolsUnsupported(error))
-      throw new UserError(
+      throw new ToolsUnsupportedError(
         `${model} on ${name} does not support tool calling, and "mia run" needs it to read, edit and run things.\n  ${(error as ProviderError).message}\n  Choose a model that supports tools ("mia model list ${name}", then "mia model use <id>" or --model <id>). Use "mia ask" for answers only.`,
       );
     if (error instanceof ProviderError) throw new UserError(error.describe());

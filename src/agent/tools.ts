@@ -7,6 +7,9 @@ import { UnsafePathError, readFileSafe, writeFileSafe } from '../platform/safefs
 import { safeGitArgs, safeGitEnv } from '../project/git.js';
 import type { RepoIndex } from '../repo/index.js';
 import { AccessError, readTextFile } from '../repo/read.js';
+import { runAudit, AUDIT_MODES, type AuditMode } from '../audit/engine.js';
+import { renderReport } from '../audit/report.js';
+import { buildRepoMap, renderRepoMap } from '../repo/map.js';
 import { searchText } from '../repo/search.js';
 import { redact } from '../security/redact.js';
 import type { ToolSpec } from '../providers/types.js';
@@ -651,9 +654,52 @@ const gitCommit: Tool = {
   },
 };
 
+const projectOverview: Tool = {
+  spec: {
+    name: 'project_overview',
+    description:
+      'Local scan of the project: languages, frameworks, detected test/build commands, key directories and modules, routes, tests, environment variable names and which secret files exist (names only). Use it for "scan the project", "what is this project" and "how is it organised".',
+    parameters: objectSchema({}),
+  },
+  risk: 'read',
+  describe: () => 'scan the project',
+  async execute(_args, env) {
+    await env.index.refresh();
+    const { map } = buildRepoMap(env.index);
+    return ok(limitText(redact(renderRepoMap(map).join('\n'))));
+  },
+};
+
+const auditProject: Tool = {
+  spec: {
+    name: 'audit_project',
+    description:
+      'Read-only static audit (security, dependencies, deployment, testing, errors, maintainability, documentation, cross-platform). It never changes files. Findings are pattern-based and each states how it was checked; report them with their confidence, do not overstate them.',
+    parameters: objectSchema({
+      mode: {
+        type: 'string',
+        enum: [...AUDIT_MODES].filter((m) => m !== 'custom'),
+        description: 'Default "standard". "security" and "deployment" focus the audit.',
+      },
+    }),
+  },
+  risk: 'read',
+  describe: (a) => `audit the project (${asString(a['mode']) ?? 'standard'})`,
+  async execute(args, env) {
+    const mode = (asString(args['mode']) ?? 'standard') as AuditMode;
+    if (!AUDIT_MODES.includes(mode) || mode === 'custom')
+      return fail(`Unknown audit mode "${mode}".`);
+    await env.index.refresh();
+    const result = await runAudit(env.index, env.run, env.env, { mode });
+    return ok(limitText(renderReport(result, 'text')));
+  },
+};
+
 export const ALL_TOOLS: readonly Tool[] = [
   readFile,
   listFiles,
+  projectOverview,
+  auditProject,
   searchCode,
   findSymbol,
   gitStatus,

@@ -32,7 +32,10 @@ import { renderBanner } from '../ui/banner.js';
 import { hostOf } from '../security/endpoint.js';
 import { ChatSession, estimateCost } from '../session/chat.js';
 import { formatCost, formatUsage } from '../ui/format.js';
+import { routeIntent } from '../nl/intent.js';
 import { suggest } from '../util/suggest.js';
+import { doctorCommand } from './doctor.js';
+import { modelCommand } from './model.js';
 import { flag, parseFlags, str, type ParsedFlags } from './flags.js';
 import { openProvider, pickProviderName, type ProviderRuntime } from './runtime.js';
 
@@ -54,6 +57,8 @@ export const SLASH_COMMANDS: Record<string, string> = {
   '/undo': "Revert the agent's last set of file changes",
   '/keys': 'Show API keys in rotation and their state (/keys reset to retry parked keys)',
   '/usage': 'Show token usage and cost estimate for this session',
+  '/models': 'List the models this provider offers',
+  '/doctor': 'Check your setup (Node, config, key storage, providers)',
   '/model': 'Show the current model; "/model <id>" switches model for this session',
   '/provider': 'Show the current provider; "/provider <name>" switches for this session',
   '/clear': 'Forget the conversation (keeps provider and model)',
@@ -249,6 +254,19 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
       if (line === null) break;
       let text = line.trim();
       if (text === '') continue;
+      // Plain-English shortcuts for Mia's own commands ("undo", "switch to auto-edit mode", ...).
+      // They run exactly the command the user could have typed; everything else goes to the model.
+      const routed = routeIntent(text);
+      if (routed) {
+        if (routed.say) {
+          ctx.print(routed.say);
+          continue;
+        }
+        if (routed.slash) {
+          ctx.print(style.dim(`→ ${routed.slash}`));
+          text = routed.slash;
+        }
+      }
       let forcePlan = false;
       const planCmd = /^\/plan(?:\s+([\s\S]*))?$/.exec(text);
       const skillCmd = /^\/skill\s+([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(text);
@@ -569,6 +587,12 @@ async function handleSlash(input: string, state: ReplState, ctx: Context): Promi
       }
       return false;
     }
+    case '/models':
+      await modelCommand(['list', state.runtime.name], ctx);
+      return false;
+    case '/doctor':
+      await doctorCommand([], ctx);
+      return false;
     case '/scan':
       await scanCommand(rest, ctx);
       return false;
