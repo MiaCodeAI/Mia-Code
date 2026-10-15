@@ -1,0 +1,32 @@
+name: Live verification (manual)
+
+# Opt-in: real credential-store round trips on macOS/Windows and, if secrets are set, real provider calls.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:live
+        env:
+          MIA_LIVE: '1'
+          MIA_LIVE_OPENAI_KEY: ${{ secrets.MIA_LIVE_OPENAI_KEY }}
+          MIA_LIVE_OPENAI_BASE_URL: ${{ vars.MIA_LIVE_OPENAI_BASE_URL }}
+          MIA_LIVE_OPENAI_MODEL: ${{ vars.MIA_LIVE_OPENAI_MODEL }}
+          MIA_LIVE_ANTHROPIC_KEY: ${{ secrets.MIA_LIVE_ANTHROPIC_KEY }}
+          MIA_LIVE_ANTHROPIC_MODEL: ${{ vars.MIA_LIVE_ANTHROPIC_MODEL }}
