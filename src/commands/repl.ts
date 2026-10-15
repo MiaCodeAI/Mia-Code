@@ -15,6 +15,8 @@ import { auditCommand, searchCommand, scanCommand } from './repo.js';
 import { Checkpoints } from '../agent/checkpoints.js';
 import { colorizeDiff } from '../agent/diff.js';
 import { AgentSession } from '../agent/loop.js';
+import { SANDBOX_FLAGS, resolveSandbox } from './sandbox.js';
+import type { ActiveSandbox } from '../sandbox/index.js';
 import { PERMISSION_MODES, describeMode, type PermissionMode } from '../agent/policy.js';
 import { buildAgentPrompt } from '../agent/prompt.js';
 import { makeHooks } from '../agent/render.js';
@@ -61,6 +63,18 @@ interface ReplState {
   mode: PermissionMode | 'chat';
   agent: AgentSession;
   checkpoints: Checkpoints;
+  flags: Record<string, string | boolean | undefined>;
+  /** undefined until first resolved. */
+  sandbox: ActiveSandbox | null | undefined;
+}
+
+async function ensureSandbox(state: ReplState, ctx: Context): Promise<ActiveSandbox | null> {
+  if (state.sandbox === undefined) {
+    await state.index.refresh();
+    state.sandbox = await resolveSandbox(ctx, state.flags, state.index, state.mode);
+    if (state.sandbox) ctx.print(ctx.style.dim(`  sandbox: ${state.sandbox.describe()}`));
+  }
+  return state.sandbox;
 }
 
 function combinedTotals(state: ReplState) {
@@ -95,6 +109,7 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
       'no-context': { type: 'boolean' },
       'no-evidence': { type: 'boolean' },
       mode: { type: 'string' },
+      ...SANDBOX_FLAGS,
     },
     false,
   );
@@ -145,6 +160,8 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
     mode: modeFlag as PermissionMode | 'chat',
     agent: new AgentSession(),
     checkpoints: new Checkpoints(index.directory),
+    flags: values,
+    sandbox: undefined,
   };
 
   const branch = git
@@ -226,6 +243,7 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
             env: ctx.env,
             platform: ctx.platform,
             checkpoints: state.checkpoints,
+            sandbox: await ensureSandbox(state, ctx),
             signal: controller.signal,
           };
           const result = await state.agent.runTurn(text, {
@@ -370,6 +388,16 @@ async function handleSlash(input: string, state: ReplState, ctx: Context): Promi
           style.red(`Unknown mode "${argument}". Available: chat, ${PERMISSION_MODES.join(', ')}`),
         );
         return false;
+      }
+      if (argument === 'auto') {
+        try {
+          await state.index.refresh();
+          state.sandbox = await resolveSandbox(ctx, state.flags, state.index, 'auto');
+        } catch (error) {
+          if (!(error instanceof UserError)) throw error;
+          ctx.print(style.red(error.message));
+          return false;
+        }
       }
       state.mode = argument as PermissionMode | 'chat';
       ctx.print(

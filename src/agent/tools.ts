@@ -1,4 +1,5 @@
 import type { Runner } from '../platform/exec.js';
+import type { ActiveSandbox } from '../sandbox/index.js';
 import { UnsafePathError, readFileSafe, writeFileSafe } from '../platform/safefs.js';
 import { safeGitArgs, safeGitEnv } from '../project/git.js';
 import type { RepoIndex } from '../repo/index.js';
@@ -19,6 +20,8 @@ export interface ToolEnv {
   platform: NodeJS.Platform;
   checkpoints: Checkpoints;
   signal?: AbortSignal;
+  /** When set, shell commands run inside this OS sandbox. */
+  sandbox?: ActiveSandbox | null;
   /** Test seam: runs between planning an edit and writing it. */
   beforeCommit?: () => Promise<void>;
 }
@@ -508,7 +511,10 @@ export async function runShell(
     env.platform === 'win32'
       ? ['cmd.exe', ['/d', '/s', '/c', command]]
       : ['/bin/sh', ['-c', command]];
-  const r = await env.run(shell as string, shellArgs as string[], {
+  const wrapped = env.sandbox
+    ? env.sandbox.wrap([shell as string, ...(shellArgs as string[])])
+    : { command: shell as string, args: shellArgs as string[] };
+  const r = await env.run(wrapped.command, wrapped.args, {
     cwd: env.root,
     env: scrubbedEnv(env.env),
     timeoutMs,

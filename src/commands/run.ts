@@ -15,6 +15,7 @@ import { estimateCost } from '../session/chat.js';
 import { evidenceBudget, groundTurn } from '../session/grounding.js';
 import { formatUsage } from '../ui/format.js';
 import { flag, parseFlags, str } from './flags.js';
+import { SANDBOX_FLAGS, SANDBOX_USAGE, resolveSandbox } from './sandbox.js';
 import { openProvider, pickProviderName } from './runtime.js';
 
 /** `mia run <task>`: one agent task (reads, edits, runs tests) with the chosen permission mode. */
@@ -27,11 +28,12 @@ export async function runCommand(args: string[], ctx: Context): Promise<number> 
     'no-context': { type: 'boolean' },
     'no-evidence': { type: 'boolean' },
     diff: { type: 'boolean' },
+    ...SANDBOX_FLAGS,
   });
   const task = positionals.join(' ').trim();
   if (task === '')
     throw new UsageError(
-      `Usage: mia run [--mode ${PERMISSION_MODES.join('|')}] [--max-steps <n>] [--diff] <task>`,
+      `Usage: mia run [--mode ${PERMISSION_MODES.join('|')}] [--max-steps <n>] [--diff] ${SANDBOX_USAGE} <task>`,
     );
   const mode = (str(values, 'mode') ?? 'ask') as PermissionMode;
   if (!PERMISSION_MODES.includes(mode))
@@ -75,6 +77,8 @@ export async function runCommand(args: string[], ctx: Context): Promise<number> 
     ),
   );
 
+  const sandbox = await resolveSandbox(ctx, values, index, mode);
+  if (sandbox) ctx.printErr(ctx.style.dim(`Sandbox: ${sandbox.describe()}`));
   const checkpoints = new Checkpoints(index.inventory.root);
   checkpoints.begin(task);
   const controller = new AbortController();
@@ -103,6 +107,7 @@ export async function runCommand(args: string[], ctx: Context): Promise<number> 
         env: ctx.env,
         platform: ctx.platform,
         checkpoints,
+        sandbox,
         signal: controller.signal,
       },
       mode,
