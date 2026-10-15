@@ -16,12 +16,17 @@ import { Checkpoints } from '../agent/checkpoints.js';
 import { colorizeDiff } from '../agent/diff.js';
 import { AgentSession } from '../agent/loop.js';
 import { SANDBOX_FLAGS, resolveSandbox } from './sandbox.js';
+import {
+  TASK_FLAGS,
+  executeTask,
+  loadProjectContext,
+  parseTaskFlags,
+  type ProjectContext,
+  type TaskFlags,
+} from './taskrun.js';
+import { renderTaskSummary } from '../agent/task.js';
 import type { ActiveSandbox } from '../sandbox/index.js';
 import { PERMISSION_MODES, describeMode, type PermissionMode } from '../agent/policy.js';
-import { buildAgentPrompt } from '../agent/prompt.js';
-import { makeHooks } from '../agent/render.js';
-import { ALL_TOOLS, type ToolEnv } from '../agent/tools.js';
-import { renderEvidence } from '../repo/evidence.js';
 import { renderBanner } from '../ui/banner.js';
 import { hostOf } from '../security/endpoint.js';
 import { ChatSession, estimateCost } from '../session/chat.js';
@@ -38,6 +43,12 @@ export const SLASH_COMMANDS: Record<string, string> = {
   '/search': 'Search the project: /search <text> (local only)',
   '/audit': 'Run a read-only audit: /audit [--mode quick|standard|deep|security|deployment]',
   '/mode': 'Show or set the mode: chat, readonly, ask, auto-edit, auto',
+  '/plan': 'Plan first: /plan <task> proposes steps and waits for your approval',
+  '/skill': 'Run a skill: /skill <name> [task]  (/skills lists them)',
+  '/skills': 'List built-in and project skills',
+  '/instructions': 'Show which MIA.md / AGENTS.md instructions are applied',
+  '/revert':
+    'Revert one file: /revert <path> (restores its content from before the agent touched it)',
   '/diff': 'Show everything the agent changed this session',
   '/undo': "Revert the agent's last set of file changes",
   '/keys': 'Show API keys in rotation and their state (/keys reset to retry parked keys)',
@@ -63,9 +74,19 @@ interface ReplState {
   mode: PermissionMode | 'chat';
   agent: AgentSession;
   checkpoints: Checkpoints;
+  taskFlags: TaskFlags;
+  project: ProjectContext | undefined;
   flags: ParsedFlags['values'];
   /** undefined until first resolved. */
   sandbox: ActiveSandbox | null | undefined;
+}
+
+async function ensureProject(state: ReplState, ctx: Context): Promise<ProjectContext> {
+  if (!state.project) {
+    await state.index.refresh();
+    state.project = await loadProjectContext(ctx, state.index);
+  }
+  return state.project;
 }
 
 async function ensureSandbox(state: ReplState, ctx: Context): Promise<ActiveSandbox | null> {
@@ -110,6 +131,7 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
       'no-evidence': { type: 'boolean' },
       mode: { type: 'string' },
       ...SANDBOX_FLAGS,
+      ...TASK_FLAGS,
     },
     false,
   );
@@ -162,6 +184,8 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
     checkpoints: new Checkpoints(index.directory),
     flags: values,
     sandbox: undefined,
+    taskFlags: parseTaskFlags(values),
+    project: undefined,
   };
 
   const branch = git
@@ -204,10 +228,29 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
     for (;;) {
       const line = await terminal.readLine(style.cyan('mia> '));
       if (line === null) break;
-      const text = line.trim();
+      let text = line.trim();
       if (text === '') continue;
+      let forcePlan = false;
+      const planCmd = /^\/plan(?:\s+([\s\S]*))?$/.exec(text);
+      const skillCmd = /^\/skill\s+([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(text);
+      if (planCmd) {
+        if (!planCmd[1]?.trim() || state.mode === 'chat') {
+          ctx.print(style.yellow('Usage: /plan <task>  (needs a non-chat mode)'));
+          continue;
+        }
+        text = planCmd[1].trim();
+        forcePlan = true;
+      } else if (skillCmd) {
+        const skill = (await ensureProject(state, ctx)).skills.find((k) => k.name === skillCmd[1]);
+        if (!skill) {
+          ctx.print(style.yellow('Unknown skill. /skills lists them.'));
+          continue;
+        }
+        text =
+          `Use the "${skill.name}" skill (load it with use_skill). ${skillCmd[2] ?? ''}`.trim();
+      }
 
-      if (text.startsWith('/')) {
+      if (!planCmd && !skillCmd && text.startsWith('/')) {
         if (await handleSlash(text, state, ctx)) break;
         continue;
       }
@@ -235,37 +278,33 @@ export async function replCommand(args: string[], ctx: Context): Promise<number>
           ctx.print(style.dim(`  sending excerpts from: ${turn.files.join(', ')}`));
         if (state.mode !== 'chat') {
           state.checkpoints.begin(text);
-          const hooks = makeHooks(ctx, { interactive: terminal.interactive });
-          const toolEnv: ToolEnv = {
-            root: state.index.inventory.root,
+          const project = await ensureProject(state, ctx);
+          const report = await executeTask(text, {
+            ctx,
             index: state.index,
-            run: ctx.run,
-            env: ctx.env,
-            platform: ctx.platform,
-            checkpoints: state.checkpoints,
-            sandbox: await ensureSandbox(state, ctx),
-            signal: controller.signal,
-          };
-          const result = await state.agent.runTurn(text, {
             provider: state.runtime.provider,
             model: state.model,
-            system: buildAgentPrompt({
-              overview: turn.overview,
-              evidence: turn.bundle ? renderEvidence(turn.bundle) : null,
-              mode: state.mode,
-              instructionFiles: state.index.profile.instructionFiles,
-            }),
-            tools: ALL_TOOLS,
-            toolEnv,
-            mode: state.mode,
-            hooks,
+            config,
             maxOutputTokens: state.runtime.config.maxOutputTokens ?? config.limits.maxOutputTokens,
             ...(state.runtime.config.temperature !== undefined
               ? { temperature: state.runtime.config.temperature }
               : {}),
+            mode: state.mode,
+            sandbox: await ensureSandbox(state, ctx),
+            checkpoints: state.checkpoints,
+            session: state.agent,
+            grounded: turn,
+            project,
+            flags: { ...state.taskFlags, plan: forcePlan || state.taskFlags.plan },
             signal: controller.signal,
           });
-          hooks.endLine();
+          const result = {
+            ...report,
+            text: report.finalText,
+            stop: report.outcome === 'cancelled' ? 'cancelled' : 'done',
+          };
+          if (report.changed.length > 0 || report.plan || report.checks.length > 0)
+            ctx.print(renderTaskSummary(report, style));
           if (result.stop === 'cancelled') ctx.print(style.yellow('[cancelled]'));
           else {
             const cites = citationSummary(result.text, turn, state.index);
@@ -402,6 +441,54 @@ async function handleSlash(input: string, state: ReplState, ctx: Context): Promi
       state.mode = argument as PermissionMode | 'chat';
       ctx.print(
         `Mode: ${state.mode === 'chat' ? 'chat (answers only, no tools)' : describeMode(state.mode)}`,
+      );
+      return false;
+    }
+    case '/revert': {
+      if (argument === '') {
+        const cp = state.checkpoints;
+        ctx.print(
+          cp.allChangedFiles.length === 0
+            ? 'No changed files this session.'
+            : cp.allChangedFiles
+                .map(
+                  (f) =>
+                    `${f}${cp.unrestorable.has(f) ? '  (changed by a shell command; cannot be reverted by Mia, use git)' : ''}`,
+                )
+                .join('\n') + '\nUsage: /revert <path>',
+        );
+        return false;
+      }
+      const res = await state.checkpoints.undoFile(argument);
+      ctx.print(
+        res === 'restored'
+          ? `Reverted ${argument}.`
+          : res === 'conflict'
+            ? style.yellow(`Left ${argument} alone: it changed after the agent wrote it.`)
+            : style.yellow(
+                `Mia cannot revert ${argument} (not changed by the agent, or its original content is unknown).`,
+              ),
+      );
+      return false;
+    }
+    case '/skills': {
+      const project = await ensureProject(state, ctx);
+      for (const k of project.skills)
+        ctx.print(`${k.name.padEnd(20)} ${k.description} (${k.source})`);
+      return false;
+    }
+    case '/instructions': {
+      const project = await ensureProject(state, ctx);
+      const src = project.instructions.sources;
+      ctx.print(
+        src.length === 0
+          ? 'No MIA.md or AGENTS.md found. Instructions are guidance only and never grant permissions.'
+          : src
+              .map((x, i) => `${i + 1}. ${x.name} (${x.scope}${x.truncated ? ', truncated' : ''})`)
+              .join('\n') +
+              (project.instructions.checks.length
+                ? `\nChecks from MIA.md: ${project.instructions.checks.join(' ; ')}`
+                : ''),
       );
       return false;
     }
